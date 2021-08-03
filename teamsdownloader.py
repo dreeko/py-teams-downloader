@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 import asyncio
+from typing import Dict
 from pyppeteer import launch, page
 import json
 from pyppeteer.browser import Browser
@@ -9,33 +10,52 @@ import shutil
 import os
 import datetime
 import time
-import ui
 import tkinter as tk
+from concurrent.futures import ThreadPoolExecutor
+
+_executor = ThreadPoolExecutor(10)
 
 class Application(tk.Frame):
-    def __init__(self, master=None):
+    chats: Dict
+    cookie: Dict
+    token: str
+    def __init__(self, master=None, in_cookie : Dict = None, in_token : str = None, in_chats: Dict = None):
         super().__init__(master)
+        self.chats = in_chats
+        self.cookie = in_cookie
+        self.token = in_token
         self.master = master
-        self.pack()
+        self.pack(fill=tk.BOTH, expand=tk.YES)
         self.create_widgets()
 
     def create_widgets(self):
         scrollData = tk.StringVar()
-        self.hi_there = tk.Button(self)
+        self.download_btn = tk.Button(self)
         self.chat_list = tk.Listbox(self, listvariable=scrollData)
-        for i in range(1,100):
-            self.chat_list.insert('end', i)
-        self.hi_there["text"] = "Hello World\n(click me)"
-        self.hi_there["command"] = self.say_hi
-        self.hi_there.pack(side="top")
-        self.chat_list.pack(side="left")
+        for c in self.chats:
+            self.chat_list.insert('end', str(c) + ': ' + self.chats[c]["topic"])
+        self.download_btn["text"] = "Download Selected"
+        self.download_btn["command"] = self.download
+        self.download_btn.pack(side="top")
+        self.chat_list.pack(side="left", fill='y')
 
         self.quit = tk.Button(self, text="QUIT", fg="red",
                               command=self.master.destroy)
         self.quit.pack(side="bottom")
 
-    def say_hi(self):
-        print("hi there, everyone!")
+    def on_resize(self,event):
+        # determine the ratio of old width/height to new width/height
+        wscale = event.width/self.width
+        hscale = event.height/self.height
+        self.width = event.width
+        self.height = event.height
+        # rescale all the objects
+        self.scale("all", 0, 0, wscale, hscale)
+
+    def download(self):
+        selected = self.chat_list.selection_get()
+        print("Downloading Chat: " + selected)
+        download_chat(cookie=self.cookie, token=self.token, chat=self.chats[int(selected[0:1])])
 # Save cookie
 
 
@@ -47,7 +67,7 @@ async def save_token(token):
     with open("token.txt", 'w+', encoding="utf-8") as file:
         file.write(token)
 
-async def download_file(url, folder, cookie):
+def download_file(url, folder, cookie):
     local_filename = url.split('/')[-1]
     with requests.get(url, stream=True, cookies=cookie) as r:
         with open(folder + '/' + local_filename, 'wb') as f:
@@ -56,7 +76,6 @@ async def download_file(url, folder, cookie):
     return local_filename
 
  # Read cookie
-
 
 async def load_cookie():
     with open("cookie.json", 'r', encoding="utf-8") as file:
@@ -119,7 +138,7 @@ async def load():
         if time.time() - os.stat('token.txt').st_mtime <= minutes_45:
             pass
         else:
-            print("woops on the token")
+            print("the token has timed out, refreshing now")
             raise Exception
     except Exception as e:
         if not browser:
@@ -132,7 +151,7 @@ async def load():
         if time.time() - os.stat('cookie.json').st_mtime <= minutes_45:
             pass
         else:
-            print("woops on the cookie")
+            print("The cookie has timed out, refreshing now")
             raise Exception
     except Exception as e:
         if not browser:
@@ -147,10 +166,8 @@ async def load():
     token = await load_token()
     return [req_cookies, token]
 
-async def main():
+async def load_chats(token):
     chats = {}
-    chatDetail = {}
-    (cookie, token) = await load()
     _headers = {'Authorization': 'Bearer ' + token}
     data = requests.get(
         'https://graph.microsoft.com/beta/me/chats', headers=_headers).json()
@@ -165,45 +182,47 @@ async def main():
         if not os.path.exists(chats[i]['folder']):
             os.mkdir(chats[i]['folder'])
         i += 1
+    return chats
 
+def download_chat(token: str, cookie: Dict, chat: Dict):
+    _headers = {'Authorization': 'Bearer ' + token}
+    chatDetailFull = []
+    reqHost = "https://graph.microsoft.com/beta/me/chats/" + \
+    chat['id'] + "/messages"
+    outFile = open(chat['folder']+'/' +
+                    chat['topic'] + '.log', 'w')
     while True:
-        chatDetailFull = []
-        try:
-            choice = int(input("choose a chat to load, 999 quits "))
-        except:
-            choice = -1
-
-        if choice == 999:
-            break
-        elif (choice in chats):
-            reqHost = "https://graph.microsoft.com/beta/me/chats/" + \
-                chats[choice]['id'] + "/messages"
-            outFile = open(chats[choice]['folder']+'/' +
-                           chats[choice]['topic'] + '.log', 'w')
-            while True:
-                chatDetail = requests.get(reqHost, headers=_headers).json()
-                await asyncio.sleep(0.05)
-                if "value" in chatDetail:
-                    chatDetailFull.extend(chatDetail["value"])
-                    for val in chatDetail["value"]:
-                        for attach in val["attachments"]:
-                            print(attach["contentUrl"])
-                            if attach["contentType"] == "reference":
-                                await download_file(
-                                    attach["contentUrl"], chats[choice]['folder'], cookie=cookie)
-                            else:
-                                print("not a file attachment")
-                else:
-                    print(chatDetail)
-
-                if "@odata.nextLink" in chatDetail:
-                    reqHost = chatDetail["@odata.nextLink"]
-                else:
-                    outFile.write(json.dumps(chatDetailFull))
-                    outFile.flush()
-                    break
+        chatDetail = requests.get(reqHost, headers=_headers).json()
+        time.sleep(0.05)
+        if "value" in chatDetail:
+            chatDetailFull.extend(chatDetail["value"])
+            for val in chatDetail["value"]:
+                for attach in val["attachments"]:
+                    print(attach["contentUrl"])
+                    if attach["contentType"] == "reference":
+                        download_file(
+                            attach["contentUrl"], chat['folder'], cookie=cookie)
+                    else:
+                        print("not a file attachment")
         else:
-            print("enter a valid choice")
+            print(chatDetail)
+
+        if "@odata.nextLink" in chatDetail:
+            reqHost = chatDetail["@odata.nextLink"]
+        else:
+            outFile.write(json.dumps(chatDetailFull))
+            outFile.flush()
+            print("Done, Output can be found here: " + chat["folder"])
+            break
+    return
+
+async def main():
+    (cookie, token) = await load()
+    chats = await load_chats(token = token)
+    root = tk.Tk()
+    app = Application(master=root,in_cookie=cookie, in_token=token, in_chats=chats)
+    app.pack(fill=tk.BOTH, expand=tk.YES)
+    app.mainloop()
 
  # Entrance run
 if __name__ == '__main__':
