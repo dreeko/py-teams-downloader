@@ -143,3 +143,6 @@ dmypy.json
 
 token.txt
 cookie.json
+
+launch.json
+tasks.json

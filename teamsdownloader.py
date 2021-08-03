@@ -15,11 +15,13 @@ from concurrent.futures import ThreadPoolExecutor
 
 _executor = ThreadPoolExecutor(10)
 
+
 class Application(tk.Frame):
     chats: Dict
     cookie: Dict
     token: str
-    def __init__(self, master=None, in_cookie : Dict = None, in_token : str = None, in_chats: Dict = None):
+
+    def __init__(self, master=None, in_cookie: Dict = None, in_token: str = None, in_chats: Dict = None):
         super().__init__(master)
         self.chats = in_chats
         self.cookie = in_cookie
@@ -33,7 +35,8 @@ class Application(tk.Frame):
         self.download_btn = tk.Button(self)
         self.chat_list = tk.Listbox(self, listvariable=scrollData)
         for c in self.chats:
-            self.chat_list.insert('end', str(c) + ': ' + self.chats[c]["topic"])
+            self.chat_list.insert('end', str(
+                c) + ': ' + self.chats[c]["topic"])
         self.download_btn["text"] = "Download Selected"
         self.download_btn["command"] = self.download
         self.download_btn.pack(side="top")
@@ -43,7 +46,7 @@ class Application(tk.Frame):
                               command=self.master.destroy)
         self.quit.pack(side="bottom")
 
-    def on_resize(self,event):
+    def on_resize(self, event):
         # determine the ratio of old width/height to new width/height
         wscale = event.width/self.width
         hscale = event.height/self.height
@@ -55,7 +58,8 @@ class Application(tk.Frame):
     def download(self):
         selected = self.chat_list.selection_get()
         print("Downloading Chat: " + selected)
-        download_chat(cookie=self.cookie, token=self.token, chat=self.chats[int(selected[0:1])])
+        download_chat(cookie=self.cookie, token=self.token,
+                      chat=self.chats[int(selected[0:1])])
 # Save cookie
 
 
@@ -63,9 +67,11 @@ async def save_cookie(cookie):
     with open("cookie.json", 'w+', encoding="utf-8") as file:
         json.dump(cookie, file, ensure_ascii=False)
 
+
 async def save_token(token):
     with open("token.txt", 'w+', encoding="utf-8") as file:
         file.write(token)
+
 
 def download_file(url, folder, cookie):
     local_filename = url.split('/')[-1]
@@ -76,6 +82,7 @@ def download_file(url, folder, cookie):
     return local_filename
 
  # Read cookie
+
 
 async def load_cookie():
     with open("cookie.json", 'r', encoding="utf-8") as file:
@@ -103,7 +110,7 @@ async def sharepoint(page, url):
 
 
 async def graph(page: page.Page, url):
-    token_element : ElementHandle
+    token_element: ElementHandle
     token: str
     await page.setViewport({'width': 1366, 'height': 768})
     await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) '
@@ -118,16 +125,18 @@ async def graph(page: page.Page, url):
     print('found token' + token)
     await save_token(token)
 
+
 async def launch_browser():
     return await launch({'headless': False,
-                            'dumpio': True,
-                            'args': [
-                                '--disable-dev-shm-usage',
-                                '--shm-size=1gb'
-                                '--disable-gpu',
-                            ],
-                            'executablePath': 'C:\Program Files\Google\Chrome\Application\chrome.exe'
-                            })
+                         'dumpio': True,
+                         'args': [
+                             '--disable-dev-shm-usage',
+                             '--shm-size=1gb'
+                             '--disable-gpu',
+                         ],
+                         'executablePath': 'C:\Program Files\Google\Chrome\Application\chrome.exe'
+                         })
+
 
 async def load():
     browser: Browser = None
@@ -166,6 +175,7 @@ async def load():
     token = await load_token()
     return [req_cookies, token]
 
+
 async def load_chats(token):
     chats = {}
     _headers = {'Authorization': 'Bearer ' + token}
@@ -184,13 +194,14 @@ async def load_chats(token):
         i += 1
     return chats
 
+
 def download_chat(token: str, cookie: Dict, chat: Dict):
     _headers = {'Authorization': 'Bearer ' + token}
     chatDetailFull = []
     reqHost = "https://graph.microsoft.com/beta/me/chats/" + \
-    chat['id'] + "/messages"
+        chat['id'] + "/messages"
     outFile = open(chat['folder']+'/' +
-                    chat['topic'] + '.log', 'w')
+                   chat['topic'] + '.log', 'w')
     while True:
         chatDetail = requests.get(reqHost, headers=_headers).json()
         time.sleep(0.05)
@@ -216,11 +227,13 @@ def download_chat(token: str, cookie: Dict, chat: Dict):
             break
     return
 
+
 async def main():
     (cookie, token) = await load()
-    chats = await load_chats(token = token)
+    chats = await load_chats(token=token)
     root = tk.Tk()
-    app = Application(master=root,in_cookie=cookie, in_token=token, in_chats=chats)
+    app = Application(master=root, in_cookie=cookie,
+                      in_token=token, in_chats=chats)
     app.pack(fill=tk.BOTH, expand=tk.YES)
     app.mainloop()
 
