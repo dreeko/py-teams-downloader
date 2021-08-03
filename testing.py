@@ -1,17 +1,26 @@
 # -*- coding: utf-8 -*-
 import asyncio
-from pyppeteer import launch
+from pyppeteer import launch, page
 import json
+from pyppeteer.browser import Browser
+from pyppeteer.element_handle import ElementHandle
 import requests
 import shutil
 import os
-
+import datetime
+import time
+import ui
 
 # Save cookie
+
+
 async def save_cookie(cookie):
     with open("cookie.json", 'w+', encoding="utf-8") as file:
         json.dump(cookie, file, ensure_ascii=False)
 
+async def save_token(token):
+    with open("token.txt", 'w+', encoding="utf-8") as file:
+        file.write(token)
 
 async def download_file(url, folder, cookie):
     local_filename = url.split('/')[-1]
@@ -29,10 +38,14 @@ async def load_cookie():
         cookie = json.load(file)
     return cookie
 
- # Load Home
+
+async def load_token():
+    with open('token.txt', 'r', encoding="utf-8") as file:
+        token = file.read()
+    return token
 
 
-async def index(page, url):
+async def sharepoint(page, url):
     await page.setViewport({'width': 1366, 'height': 768})
     await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) '
                             'Chrome/58.0.3029.110 Safari/537.36 Edge/16.16299')
@@ -44,47 +57,75 @@ async def index(page, url):
     await save_cookie(cookies)
     print(cookies)
 
- # Main function
 
+async def graph(page: page.Page, url):
+    token_element : ElementHandle
+    token: str
+    await page.setViewport({'width': 1366, 'height': 768})
+    await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) '
+                            'Chrome/58.0.3029.110 Safari/537.36 Edge/16.16299')
+    await page.goto(url)
+    await page.waitForSelector('.ms-Persona', options={'timeout': 0})
+    await page.click('button[name^=Access')
+    await asyncio.sleep(1)
+    await page.waitForSelector('label.ms-Label:nth-child(2)', {'timeout': 300000})
+    token_element = await page.querySelector('label.ms-Label:nth-child(2)')
+    token = await page.evaluate('(element) => element.textContent', token_element)
+    print('found token' + token)
+    await save_token(token)
 
-async def main():
-    chats = {}
-    chatDetail = {}
-
-    # Initialize the browser
-    browser = await launch({'headless': False,
+async def launch_browser():
+    return await launch({'headless': False,
                             'dumpio': True,
                             'args': [
-                                # '--disable-extensions',
-                                # '--disable-bundled-ppapi-flash',
-                                # '--mute-audio',
-                                # '--no-sandbox',
-                                # '--disable-setuid-sandbox',
                                 '--disable-dev-shm-usage',
                                 '--shm-size=1gb'
                                 '--disable-gpu',
                             ],
                             'executablePath': 'C:\Program Files\Google\Chrome\Application\chrome.exe'
                             })
-    # Open a new tab
-    new_cookie = False
-    page1 = await browser.pages()
-    page1 = page1[0]
-    await page1.setViewport({'width': 1366, 'height': 768})
-    await page1.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) '
-                             'Chrome/58.0.3029.110 Safari/537.36 Edge/16.16299')
-    await page1.goto('https://developer.microsoft.com/en-us/graph/graph-explorer')
-    if new_cookie:
+
+async def load():
+    browser: Browser = None
+
+    minutes_15 = 900
+    minutes_45 = 2700
+    try:
+        if time.time() - os.stat('token.txt').st_mtime <= minutes_45:
+            pass
+        else:
+            print("woops on the token")
+            raise Exception
+    except Exception as e:
+        if not browser:
+            browser = await launch_browser()
+        page1 = await browser.pages()
+        page1 = page1[0]
+        await graph(page=page1, url='https://developer.microsoft.com/en-us/graph/graph-explorer')
+
+    try:
+        if time.time() - os.stat('cookie.json').st_mtime <= minutes_45:
+            pass
+        else:
+            print("woops on the cookie")
+            raise Exception
+    except Exception as e:
+        if not browser:
+            browser = await launch_browser()
         page2 = await browser.newPage()
-        await index(page2, 'https://inoffice.sharepoint.com/')
+        await sharepoint(page2, 'https://inoffice.sharepoint.com/')
 
     cookie = await load_cookie()
     req_cookies = {}
     for entry in cookie:
         req_cookies[entry['name']] = entry['value']
+    token = await load_token()
+    return [req_cookies, token]
 
-    token = input(
-        "please log in on the graph explorer from your browser, copy the access token and paste it here then press enter")
+async def main():
+    chats = {}
+    chatDetail = {}
+    (cookie, token) = await load()
     _headers = {'Authorization': 'Bearer ' + token}
     data = requests.get(
         'https://graph.microsoft.com/beta/me/chats', headers=_headers).json()
@@ -102,7 +143,11 @@ async def main():
 
     while True:
         chatDetailFull = []
-        choice = int(input("choose a chat to load, 999 quits "))
+        try:
+            choice = int(input("choose a chat to load, 999 quits "))
+        except:
+            choice = -1
+
         if choice == 999:
             break
         elif (choice in chats):
@@ -112,7 +157,7 @@ async def main():
                            chats[choice]['topic'] + '.log', 'w')
             while True:
                 chatDetail = requests.get(reqHost, headers=_headers).json()
-                await asyncio.sleep(0.1)
+                await asyncio.sleep(0.05)
                 if "value" in chatDetail:
                     chatDetailFull.extend(chatDetail["value"])
                     for val in chatDetail["value"]:
@@ -120,7 +165,7 @@ async def main():
                             print(attach["contentUrl"])
                             if attach["contentType"] == "reference":
                                 await download_file(
-                                    attach["contentUrl"], chats[choice]['folder'], cookie=req_cookies)
+                                    attach["contentUrl"], chats[choice]['folder'], cookie=cookie)
                             else:
                                 print("not a file attachment")
                 else:
