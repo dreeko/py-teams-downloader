@@ -173,6 +173,11 @@ async def load():
     for entry in cookie:
         req_cookies[entry['name']] = entry['value']
     token = await load_token()
+
+    try:
+        await browser.close()
+    except:
+        pass
     return [req_cookies, token]
 
 
