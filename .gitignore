@@ -140,3 +140,6 @@ dmypy.json
 *.csv
 *.mkv
 *.mp4
+
+token.txt
+cookie.json
