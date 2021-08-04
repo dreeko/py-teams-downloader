@@ -20,6 +20,7 @@ class Application(tk.Frame):
     chats: Dict
     cookie: Dict
     token: str
+    label_text: tk.StringVar
 
     def __init__(self, master=None, in_cookie: Dict = None, in_token: str = None, in_chats: Dict = None):
         super().__init__(master)
@@ -27,20 +28,37 @@ class Application(tk.Frame):
         self.cookie = in_cookie
         self.token = in_token
         self.master = master
+        self.label_text = tk.StringVar(self, "Select an item")
         self.pack(fill=tk.BOTH, expand=tk.YES)
         self.create_widgets()
 
     def create_widgets(self):
         scrollData = tk.StringVar()
         self.download_btn = tk.Button(self)
+        self.open_folder_btn = tk.Button(self)
         self.chat_list = tk.Listbox(self, listvariable=scrollData)
+        self.chat_list['width'] = 48
+        self.chat_list['height'] = 32
         for c in self.chats:
+            c = int(c)
             self.chat_list.insert('end', str(
                 c) + ': ' + self.chats[c]["topic"])
         self.download_btn["text"] = "Download Selected"
+        self.open_folder_btn["text"] = "Open Download Folder"
+        self.open_folder_btn["command"] = self.open_folder
+        self.open_folder_btn.pack(side=tk.TOP)
         self.download_btn["command"] = self.download
-        self.download_btn.pack(side="top")
+        self.download_btn.pack(side=tk.TOP)
+        self.chat_list.bind("<<ListboxSelect>>", self.on_lb_select)
         self.chat_list.pack(side="left", fill='y')
+
+        self.lbl_chat_info = tk.Label(self, anchor='w')
+        self.lbl_chat_info['width'] = 64
+        self.lbl_chat_info['height'] = 12
+#        self.lbl_chat_info['wraplength'] = 128
+        self.lbl_chat_info['justify'] = tk.LEFT
+        self.lbl_chat_info['textvariable'] = self.label_text
+        self.lbl_chat_info.pack(side=tk.LEFT, fill='x')
 
         self.quit = tk.Button(self, text="QUIT", fg="red",
                               command=self.master.destroy)
@@ -55,17 +73,45 @@ class Application(tk.Frame):
         # rescale all the objects
         self.scale("all", 0, 0, wscale, hscale)
 
+    def on_lb_select(self, event):
+        w = event.widget
+        index = int(w.curselection()[0])
+        value = w.get(index)
+        chat = self.chats[int(value.split(':')[0])]
+        self.label_text.set(chat['id'] + '\n' + chat['chat_type'] +
+                            '\n' + chat['topic'] + '\n' + '\n'.join(chat['members']))
+
+    def open_folder(self):
+        selected: str = self.chat_list.selection_get()
+        chat = self.chats[int(selected.split(':')[0])]
+        os.startfile(chat['folder'])
+
     def download(self):
-        selected = self.chat_list.selection_get()
+        selected: str = self.chat_list.selection_get()
         print("Downloading Chat: " + selected)
         download_chat(cookie=self.cookie, token=self.token,
-                      chat=self.chats[int(selected[0:1])])
+                      chat=self.chats[int(selected.split(':')[0])])
 # Save cookie
 
 
 async def save_cookie(cookie):
     with open("cookie.json", 'w+', encoding="utf-8") as file:
         json.dump(cookie, file, ensure_ascii=False)
+
+
+async def save_chat_cache(chats):
+    with open("chats.json", 'w+', encoding="utf-8") as file:
+        json.dump(chats, file)
+
+
+async def load_chat_cache():
+    with open("chats.json", 'r', encoding="utf-8") as file:
+        payload = json.load(file)
+        chats = {}
+        for k, v in payload.items():
+            print(str(k))
+            chats[int(k)] = v
+        return chats
 
 
 async def save_token(token):
@@ -182,22 +228,57 @@ async def load():
 
 
 async def load_chats(token):
+    try:
+        if os.path.isfile('./chats.json'):
+            print("Chat Cache Exists, utlizing it")
+            return await load_chat_cache()
+        else:
+            print("Chat Cache Doesn't Exist, Refreshing")
+    except Exception as e:
+        print("Chat Cache Doesn't Exist, Refreshing -- ")
+        print(e)
+
     chats = {}
+    chats_data = []
+    chaturl = 'https://graph.microsoft.com/beta/me/chats'
     _headers = {'Authorization': 'Bearer ' + token}
-    data = requests.get(
-        'https://graph.microsoft.com/beta/me/chats', headers=_headers).json()
+    while True:
+        data = requests.get(chaturl, headers=_headers).json()
+        chats_data.extend(data["value"])
+        if "@odata.nextLink" in data:
+            chaturl = data["@odata.nextLink"]
+        else:
+            break
     i = 1
-    for v in data["value"]:
+    for v in chats_data:
         #print(str(i) + ': ' + (v['chatType'] or "No Chat type") + ' ::: ' + (v['topic'] or "No Topic") + ' - ' + (v['id'] or "No ID"))
         chats[i] = {'id': v['id'], 'topic': (v['topic'] or "No_Topic"), 'chat_type': (
             v['chatType'] or "No Chat type"), 'folder': "default"}
         chats[i]['folder'] = chats[i]['topic'] + \
             '_'+chats[i]['id'].replace(':', '')
+
+        chats[i]['members'] = await load_chat_members(token, chats[i]['id'])
         print(str(i) + ': ' + chats[i]['topic'] + ' ::: ' + chats[i]['id'])
+        for m in chats[i]['members']:
+            print(m)
         if not os.path.exists(chats[i]['folder']):
             os.mkdir(chats[i]['folder'])
         i += 1
+    await save_chat_cache(chats)
     return chats
+
+
+async def load_chat_members(token: str, chatID: str):
+    _headers = {'Authorization': 'Bearer ' + token}
+    members = []
+    membersURL = 'https://graph.microsoft.com/beta/me/chats/' + chatID + '/members'
+    members_resp = requests.get(membersURL, headers=_headers).json()
+    if "value" in members_resp:
+        for v in members_resp["value"]:
+            members.append(v['displayName'])
+    else:
+        print(json.dumps(members_resp))
+    return members
 
 
 def download_chat(token: str, cookie: Dict, chat: Dict):
@@ -206,7 +287,7 @@ def download_chat(token: str, cookie: Dict, chat: Dict):
     reqHost = "https://graph.microsoft.com/beta/me/chats/" + \
         chat['id'] + "/messages"
     outFile = open(chat['folder']+'/' +
-                   chat['topic'] + '.log', 'w')
+                   chat['topic'] + '_chat_log.json', 'w')
     while True:
         chatDetail = requests.get(reqHost, headers=_headers).json()
         time.sleep(0.05)
@@ -226,7 +307,7 @@ def download_chat(token: str, cookie: Dict, chat: Dict):
         if "@odata.nextLink" in chatDetail:
             reqHost = chatDetail["@odata.nextLink"]
         else:
-            outFile.write(json.dumps(chatDetailFull))
+            outFile.write(json.dumps(chatDetailFull, indent=2))
             outFile.flush()
             print("Done, Output can be found here: " + chat["folder"])
             break
@@ -234,12 +315,16 @@ def download_chat(token: str, cookie: Dict, chat: Dict):
 
 
 async def main():
+    print("Initializing App")
     (cookie, token) = await load()
+    print("Auth has loaded")
     chats = await load_chats(token=token)
+    print("Chats have been loaded")
     root = tk.Tk()
     app = Application(master=root, in_cookie=cookie,
                       in_token=token, in_chats=chats)
     app.pack(fill=tk.BOTH, expand=tk.YES)
+    print("Entering GUI Main loop")
     app.mainloop()
 
  # Entrance run
