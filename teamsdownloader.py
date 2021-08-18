@@ -11,6 +11,7 @@ import os
 import datetime
 import time
 import tkinter as tk
+from tkinter import messagebox
 from concurrent.futures import ThreadPoolExecutor
 
 _executor = ThreadPoolExecutor(10)
@@ -320,6 +321,9 @@ def download_chat(token: str, cookie: Dict, chat: Dict):
             outFile.write(json.dumps(chatDetailFull, indent=2))
             outFile.flush()
             print("Done, Output can be found here: " + chat["folder"])
+            res = messagebox.askquestion('Open dl folder', 'Would you like to open the download folder?')
+            if res == 'yes':
+                os.startfile(chat["folder"])
             break
     return
 
