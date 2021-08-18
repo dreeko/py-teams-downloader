@@ -149,3 +149,5 @@ cookie.json
 launch.json
 tasks.json
 chats.json
+*_log.json
+*.code-workspace
