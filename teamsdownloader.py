@@ -14,56 +14,188 @@ import tkinter as tk
 from tkinter import messagebox
 from concurrent.futures import ThreadPoolExecutor
 
+import wx
+from wx.core import ListBox
+from wxasync import AsyncBind, WxAsyncApp, StartCoroutine
+import asyncio
+from asyncio.events import get_event_loop
+
 _executor = ThreadPoolExecutor(10)
 
-
-class Application(tk.Frame):
-    chats: Dict
-    cookie: Dict
+class MainFrame(wx.Frame):
+    cookies : dict
     token: str
-    label_text: tk.StringVar
+    chats: dict
+    chatList: ListBox
 
-    def __init__(self, master=None, in_cookie: Dict = None, in_token: str = None, in_chats: Dict = None):
-        super().__init__(master)
-        self.chats = in_chats
-        self.cookie = in_cookie
-        self.token = in_token
-        self.master = master
-        self.label_text = tk.StringVar(self, "Select an item")
-        self.pack(fill=tk.BOTH, expand=tk.YES)
-        self.create_widgets()
+    def __init__(self, parent=None):
+        super(MainFrame, self).__init__(parent)
+        self.cookies = {}
+        self.token = ""
+        self.chatList = None
 
-    def create_widgets(self):
-        scrollData = tk.StringVar()
-        self.download_btn = tk.Button(self)
-        self.open_folder_btn = tk.Button(self)
-        self.chat_list = tk.Listbox(self, listvariable=scrollData)
-        self.chat_list['width'] = 48
-        self.chat_list['height'] = 32
-        for c in self.chats:
-            c = int(c)
-            self.chat_list.insert('end', str(
-                c) + ': ' + self.chats[c]["topic"])
-        self.download_btn["text"] = "Download Selected"
-        self.open_folder_btn["text"] = "Open Download Folder"
-        self.open_folder_btn["command"] = self.open_folder
-        self.open_folder_btn.pack(side=tk.TOP)
-        self.download_btn["command"] = self.download
-        self.download_btn.pack(side=tk.TOP)
-        self.chat_list.bind("<<ListboxSelect>>", self.on_lb_select)
-        self.chat_list.pack(side="left", fill='y')
+        StartCoroutine(self.load(), self)
+        while self.token == None:
+            time.sleep(1)
+        
+        StartCoroutine(self.load_chats(self.token), self)
+        hbox = wx.BoxSizer(wx.HORIZONTAL)
+        self.chatList = wx.ListBox(self, style=wx.LB_SINGLE, choices=[])
+        #button1 =  wx.Button(self, label="Submit")
+        self.status_text =  wx.StaticText(self, style=wx.ALIGN_CENTRE_HORIZONTAL|wx.ST_NO_AUTORESIZE)
 
-        self.lbl_chat_info = tk.Label(self, anchor='w')
-        self.lbl_chat_info['width'] = 64
-        self.lbl_chat_info['height'] = 12
-#        self.lbl_chat_info['wraplength'] = 128
-        self.lbl_chat_info['justify'] = tk.LEFT
-        self.lbl_chat_info['textvariable'] = self.label_text
-        self.lbl_chat_info.pack(side=tk.LEFT, fill='x')
+        hbox.Add(self.chatList, 2, wx.EXPAND|wx.ALL)
+        hbox.AddStretchSpacer(1)
+        hbox.Add(self.status_text, 1, wx.EXPAND|wx.ALL)
 
-        self.quit = tk.Button(self, text="QUIT", fg="red",
-                              command=self.master.destroy)
-        self.quit.pack(side="bottom")
+        self.SetSizer(hbox)
+        self.Layout()
+        AsyncBind(wx.EVT_LISTBOX , self.lb_select, self.chatList)
+        #AsyncBind(wx.EVT_BUTTON, self.async_callback, button1)
+
+    async def lb_select(self, evt):
+        print("wat")
+        topic: str = self.chats[self.chatList.GetSelection() +1]["topic"]
+        self.status_text.SetLabel(self.status_text.LabelText + '\n' + 'SELECT! ' + topic)
+        pass
+
+    async def update_clock(self):
+        while True:
+            self.edit_timer.SetLabel(time.strftime('%H:%M:%S'))
+            await asyncio.sleep(0.5)
+
+    async def load(self):
+        browser: Browser = None
+        minutes_15 = 900
+        minutes_45 = 2700
+        try:
+            if time.time() - os.stat('token.txt').st_mtime <= minutes_45:
+                pass
+            else:
+                self.status_text.SetLabel(self.status_text.LabelText + '\n' + "the token has timed out, refreshing now")
+                raise Exception
+        except Exception as e:
+            if not browser:
+                browser = await launch_browser()
+            page1 = await browser.pages()
+            page1 = page1[0]
+            await graph(page=page1, url='https://developer.microsoft.com/en-us/graph/graph-explorer')
+
+        try:
+            if time.time() - os.stat('cookie.json').st_mtime <= minutes_45:
+                pass
+            else:
+                self.status_text.SetLabel(self.status_text.LabelText + '\n' + "The cookie has timed out, refreshing now")
+                raise Exception
+        except Exception as e:
+            if not browser:
+                browser = await launch_browser()
+            page2 = await browser.newPage()
+            await sharepoint(page2, 'https://inoffice.sharepoint.com/')
+
+        cookie = await load_cookie()
+        req_cookies = {}
+        for entry in cookie:
+            req_cookies[entry['name']] = entry['value']
+        token = await load_token()
+
+        try:
+            await browser.close()
+        except:
+            pass
+        self.status_text
+        self.cookies, self.token = [req_cookies, token]
+
+    async def load_chats(self, token):
+        try:
+            if os.path.isfile('./chats.json'):
+                self.status_text.SetLabel(self.status_text.LabelText + '\n' + "Chat Cache Exists, utlizing it")
+                await load_chat_cache(self)
+                return
+            else:
+                self.status_text.SetLabel(self.status_text.LabelText + '\n' + "Chat Cache Doesn't Exist, Refreshing")
+        except Exception as e:
+            self.status_text.SetLabel(self.status_text.LabelText + '\n' + "Chat Cache Doesn't Exist, Refreshing -- ")
+            self.status_text.SetLabel(self.status_text.LabelText + '\n' + str(e))
+
+        chats = {}
+        chats_data = []
+        chaturl = 'https://graph.microsoft.com/beta/me/chats'
+        _headers = {'Authorization': 'Bearer ' + token}
+        while True:
+            data = requests.get(chaturl, headers=_headers).json()
+            chats_data.extend(data["value"])
+            if "@odata.nextLink" in data:
+                chaturl = data["@odata.nextLink"]
+            else:
+                break
+        i = 1
+        for v in chats_data:
+            #print(str(i) + ': ' + (v['chatType'] or "No Chat type") + ' ::: ' + (v['topic'] or "No Topic") + ' - ' + (v['id'] or "No ID"))
+            chats[i] = {'id': v['id'], 'topic': (v['topic'] or "No_Topic"), 'chat_type': (
+                v['chatType'] or "No Chat type"), 'folder': "default"}
+            chats[i]['folder'] = chats[i]['topic'] + \
+                '_'+chats[i]['id'].replace(':', '')
+
+            chats[i]['members'] = await load_chat_members(token, chats[i]['id'])
+            print(str(i) + ': ' + chats[i]['topic'] + ' ::: ' + chats[i]['id'])
+            for m in chats[i]['members']:
+                print(m)
+            if not os.path.exists(chats[i]['folder']):
+                os.mkdir(chats[i]['folder'])
+            i += 1
+        await save_chat_cache(chats)
+        self.chats = chats
+        self.chatList.InsertItems( [c["topic"] for c in chats])
+
+
+# class Application(tk.Frame):
+#     chats: Dict
+#     cookie: Dict
+#     token: str
+#     label_text: tk.StringVar
+
+#     def __init__(self, master=None, in_cookie: Dict = None, in_token: str = None, in_chats: Dict = None):
+#         super().__init__(master)
+#         self.chats = in_chats
+#         self.cookie = in_cookie
+#         self.token = in_token
+#         self.master = master
+#         self.label_text = tk.StringVar(self, "Select an item")
+#         self.pack(fill=tk.BOTH, expand=tk.YES)
+#         self.create_widgets()
+
+#     def create_widgets(self):
+#         scrollData = tk.StringVar()
+#         self.download_btn = tk.Button(self)
+#         self.open_folder_btn = tk.Button(self)
+#         self.chat_list = tk.Listbox(self, listvariable=scrollData)
+#         self.chat_list['width'] = 48
+#         self.chat_list['height'] = 32
+#         for c in self.chats:
+#             c = int(c)
+#             self.chat_list.insert('end', str(
+#                 c) + ': ' + self.chats[c]["topic"])
+#         self.download_btn["text"] = "Download Selected"
+#         self.open_folder_btn["text"] = "Open Download Folder"
+#         self.open_folder_btn["command"] = self.open_folder
+#         self.open_folder_btn.pack(side=tk.TOP)
+#         self.download_btn["command"] = self.download
+#         self.download_btn.pack(side=tk.TOP)
+#         self.chat_list.bind("<<ListboxSelect>>", self.on_lb_select)
+#         self.chat_list.pack(side="left", fill='y')
+
+#         self.lbl_chat_info = tk.Label(self, anchor='w')
+#         self.lbl_chat_info['width'] = 64
+#         self.lbl_chat_info['height'] = 12
+# #        self.lbl_chat_info['wraplength'] = 128
+#         self.lbl_chat_info['justify'] = tk.LEFT
+#         self.lbl_chat_info['textvariable'] = self.label_text
+#         self.lbl_chat_info.pack(side=tk.LEFT, fill='x')
+
+#         self.quit = tk.Button(self, text="QUIT", fg="red",
+#                               command=self.master.destroy)
+#         self.quit.pack(side="bottom")
 
     def on_resize(self, event):
         # determine the ratio of old width/height to new width/height
@@ -87,10 +219,10 @@ class Application(tk.Frame):
         chat = self.chats[int(selected.split(':')[0])]
         os.startfile(chat['folder'])
 
-    def download(self):
+    async def download(self):
         selected: str = self.chat_list.selection_get()
         print("Downloading Chat: " + selected)
-        download_chat(cookie=self.cookie, token=self.token,
+        await download_chat(cookie=self.cookie, token=self.token,
                       chat=self.chats[int(selected.split(':')[0])])
 # Save cookie
 
@@ -105,14 +237,15 @@ async def save_chat_cache(chats):
         json.dump(chats, file)
 
 
-async def load_chat_cache():
+async def load_chat_cache(self):
     with open("chats.json", 'r', encoding="utf-8") as file:
         payload = json.load(file)
         chats = {}
         for k, v in payload.items():
             print(str(k))
             chats[int(k)] = v
-        return chats
+        self.chatList.InsertItems([c["topic"] for c in chats.values()], 0)
+        self.chats = chats
 
 
 async def save_token(token):
@@ -120,7 +253,7 @@ async def save_token(token):
         file.write(token)
 
 
-def download_file(url, folder, cookie):
+async def download_file(url, folder, cookie):
     local_filename = url.split('/')[-1]
     with requests.get(url, stream=True, cookies=cookie) as r:
         with open(folder + '/' + local_filename, 'wb') as f:
@@ -194,89 +327,6 @@ async def launch_browser():
                          })
 
 
-async def load():
-    browser: Browser = None
-
-    minutes_15 = 900
-    minutes_45 = 2700
-    try:
-        if time.time() - os.stat('token.txt').st_mtime <= minutes_45:
-            pass
-        else:
-            print("the token has timed out, refreshing now")
-            raise Exception
-    except Exception as e:
-        if not browser:
-            browser = await launch_browser()
-        page1 = await browser.pages()
-        page1 = page1[0]
-        await graph(page=page1, url='https://developer.microsoft.com/en-us/graph/graph-explorer')
-
-    try:
-        if time.time() - os.stat('cookie.json').st_mtime <= minutes_45:
-            pass
-        else:
-            print("The cookie has timed out, refreshing now")
-            raise Exception
-    except Exception as e:
-        if not browser:
-            browser = await launch_browser()
-        page2 = await browser.newPage()
-        await sharepoint(page2, 'https://inoffice.sharepoint.com/')
-
-    cookie = await load_cookie()
-    req_cookies = {}
-    for entry in cookie:
-        req_cookies[entry['name']] = entry['value']
-    token = await load_token()
-
-    try:
-        await browser.close()
-    except:
-        pass
-    return [req_cookies, token]
-
-
-async def load_chats(token):
-    try:
-        if os.path.isfile('./chats.json'):
-            print("Chat Cache Exists, utlizing it")
-            return await load_chat_cache()
-        else:
-            print("Chat Cache Doesn't Exist, Refreshing")
-    except Exception as e:
-        print("Chat Cache Doesn't Exist, Refreshing -- ")
-        print(e)
-
-    chats = {}
-    chats_data = []
-    chaturl = 'https://graph.microsoft.com/beta/me/chats'
-    _headers = {'Authorization': 'Bearer ' + token}
-    while True:
-        data = requests.get(chaturl, headers=_headers).json()
-        chats_data.extend(data["value"])
-        if "@odata.nextLink" in data:
-            chaturl = data["@odata.nextLink"]
-        else:
-            break
-    i = 1
-    for v in chats_data:
-        #print(str(i) + ': ' + (v['chatType'] or "No Chat type") + ' ::: ' + (v['topic'] or "No Topic") + ' - ' + (v['id'] or "No ID"))
-        chats[i] = {'id': v['id'], 'topic': (v['topic'] or "No_Topic"), 'chat_type': (
-            v['chatType'] or "No Chat type"), 'folder': "default"}
-        chats[i]['folder'] = chats[i]['topic'] + \
-            '_'+chats[i]['id'].replace(':', '')
-
-        chats[i]['members'] = await load_chat_members(token, chats[i]['id'])
-        print(str(i) + ': ' + chats[i]['topic'] + ' ::: ' + chats[i]['id'])
-        for m in chats[i]['members']:
-            print(m)
-        if not os.path.exists(chats[i]['folder']):
-            os.mkdir(chats[i]['folder'])
-        i += 1
-    await save_chat_cache(chats)
-    return chats
-
 
 async def load_chat_members(token: str, chatID: str):
     _headers = {'Authorization': 'Bearer ' + token}
@@ -291,7 +341,7 @@ async def load_chat_members(token: str, chatID: str):
     return members
 
 
-def download_chat(token: str, cookie: Dict, chat: Dict):
+async def download_chat(token: str, cookie: Dict, chat: Dict):
     _headers = {'Authorization': 'Bearer ' + token}
     chatDetailFull = []
     reqHost = "https://graph.microsoft.com/beta/me/chats/" + \
@@ -334,13 +384,18 @@ async def main():
     print("Auth has loaded")
     chats = await load_chats(token=token)
     print("Chats have been loaded")
-    root = tk.Tk()
-    app = Application(master=root, in_cookie=cookie,
-                      in_token=token, in_chats=chats)
-    app.pack(fill=tk.BOTH, expand=tk.YES)
-    print("Entering GUI Main loop")
-    app.mainloop()
+    # root = tk.Tk()
+    # app = Application(master=root, in_cookie=cookie,
+    #                   in_token=token, in_chats=chats)
+    # app.pack(fill=tk.BOTH, expand=tk.YES)
+    # print("Entering GUI Main loop")
+    # app.mainloop()
 
  # Entrance run
 if __name__ == '__main__':
-    asyncio.get_event_loop().run_until_complete(main())
+    app = WxAsyncApp()
+    frame = MainFrame()
+    frame.Show()
+    app.SetTopWindow(frame)
+    loop = get_event_loop()
+    loop.run_until_complete(app.MainLoop())
