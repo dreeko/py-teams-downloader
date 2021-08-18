@@ -163,6 +163,15 @@ async def graph(page: page.Page, url):
                             'Chrome/58.0.3029.110 Safari/537.36 Edge/16.16299')
     await page.goto(url)
     await page.waitForSelector('.ms-Persona', options={'timeout': 0})
+    await page.focus('#TextField18')
+    await page.keyboard.type('/chats')
+    await page.keyboard.press('Enter')
+    await page.click('button[name^=Modify')
+    await asyncio.sleep(3)
+    btn : ElementHandle = await page.xpath("//button[contains(., 'Consent')][1]")
+    input()
+    await btn[0].click()
+    input()
     await page.click('button[name^=Access')
     await asyncio.sleep(1)
     await page.waitForSelector('label.ms-Label:nth-child(2)', {'timeout': 300000})
@@ -289,6 +298,7 @@ def download_chat(token: str, cookie: Dict, chat: Dict):
     outFile = open(chat['folder']+'/' +
                    chat['topic'] + '_chat_log.json', 'w')
     while True:
+        chatDetail = []
         chatDetail = requests.get(reqHost, headers=_headers).json()
         time.sleep(0.05)
         if "value" in chatDetail:
@@ -304,7 +314,7 @@ def download_chat(token: str, cookie: Dict, chat: Dict):
         else:
             print(chatDetail)
 
-        if "@odata.nextLink" in chatDetail:
+        if "@odata.nextLink" in chatDetail and chatDetail["@odata.nextLink"] != reqHost:
             reqHost = chatDetail["@odata.nextLink"]
         else:
             outFile.write(json.dumps(chatDetailFull, indent=2))
