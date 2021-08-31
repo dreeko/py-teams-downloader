@@ -1,3 +1,18 @@
+Scripts/
+_.log
+No_Topic*/
+dist/
+build/
+Include/
+Lib/
+A-Team*/
+NINDSS*/
+token.txt
+chats.json
+cookie.json
+*.pyc
+*.spec
+pyvenv.cfg
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]

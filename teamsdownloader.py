@@ -254,9 +254,10 @@ async def load_chats(token):
     _headers = {'Authorization': 'Bearer ' + token}
     while True:
         data = requests.get(chaturl, headers=_headers).json()
-        chats_data.extend(data["value"])
-        if "@odata.nextLink" in data:
-            chaturl = data["@odata.nextLink"]
+        if "value" in data:
+            chats_data.extend(data["value"])
+            if "@odata.nextLink" in data:
+                chaturl = data["@odata.nextLink"]
         else:
             break
     i = 1
@@ -319,7 +320,6 @@ def download_chat(token: str, cookie: Dict, chat: Dict):
             reqHost = chatDetail["@odata.nextLink"]
         else:
             outFile.write(json.dumps(chatDetailFull, indent=2))
-            outFile.flush()
             print("Done, Output can be found here: " + chat["folder"])
             res = messagebox.askquestion('Open dl folder', 'Would you like to open the download folder?')
             if res == 'yes':
