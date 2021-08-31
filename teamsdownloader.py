@@ -168,13 +168,12 @@ async def graph(page: page.Page, url):
     await page.keyboard.type('/chats')
     await page.keyboard.press('Enter')
     await page.click('button[name^=Modify')
-    await asyncio.sleep(3)
+    await page.waitForXPath("//button[contains(., 'Consent')][1]")
     btn : ElementHandle = await page.xpath("//button[contains(., 'Consent')][1]")
-    input()
     await btn[0].click()
-    input()
+    #await page.waitForXPath("//label[@class='ms-Label consented-300']")
+    await page.waitForXPath("//span[text()='Consented']")
     await page.click('button[name^=Access')
-    await asyncio.sleep(1)
     await page.waitForSelector('label.ms-Label:nth-child(2)', {'timeout': 300000})
     token_element = await page.querySelector('label.ms-Label:nth-child(2)')
     token = await page.evaluate('(element) => element.textContent', token_element)
@@ -256,8 +255,10 @@ async def load_chats(token):
         data = requests.get(chaturl, headers=_headers).json()
         if "value" in data:
             chats_data.extend(data["value"])
-            if "@odata.nextLink" in data:
+            if "@odata.nextLink" in data and data["@odata.nextLink"] != chaturl:
                 chaturl = data["@odata.nextLink"]
+            else:
+                break
         else:
             break
     i = 1
