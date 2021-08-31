@@ -55,9 +55,10 @@ class MainFrame(wx.Frame):
 
     async def lb_select(self, evt):
         print("wat")
-        topic: str = self.chats[self.chatList.GetSelection() +1]["topic"]
-        self.status_text.SetLabel(self.status_text.LabelText + '\n' + 'SELECT! ' + topic)
-        pass
+        sel_chat: Dict = self.chats[self.chatList.GetSelection() +1]
+        topic: str = sel_chat["topic"]
+        self.status_text.SetLabel(self.status_text.LabelText + '\n' + topic)
+        self.status_text.SetLabel(self.status_text.LabelText + '\n'.join(sel_chat["members"]))
 
     async def update_clock(self):
         while True:
@@ -121,9 +122,10 @@ class MainFrame(wx.Frame):
         chats = {}
         chats_data = []
         chaturl = 'https://graph.microsoft.com/beta/me/chats'
-        _headers = {'Authorization': 'Bearer ' + token}
+        _headers = {'Authorization': 'Bearer ' + self.token}
         while True:
             data = requests.get(chaturl, headers=_headers).json()
+            print(data)
             chats_data.extend(data["value"])
             if "@odata.nextLink" in data:
                 chaturl = data["@odata.nextLink"]
@@ -141,61 +143,10 @@ class MainFrame(wx.Frame):
             print(str(i) + ': ' + chats[i]['topic'] + ' ::: ' + chats[i]['id'])
             for m in chats[i]['members']:
                 print(m)
-            if not os.path.exists(chats[i]['folder']):
-                os.mkdir(chats[i]['folder'])
             i += 1
         await save_chat_cache(chats)
         self.chats = chats
-        self.chatList.InsertItems( [c["topic"] for c in chats])
-
-
-# class Application(tk.Frame):
-#     chats: Dict
-#     cookie: Dict
-#     token: str
-#     label_text: tk.StringVar
-
-#     def __init__(self, master=None, in_cookie: Dict = None, in_token: str = None, in_chats: Dict = None):
-#         super().__init__(master)
-#         self.chats = in_chats
-#         self.cookie = in_cookie
-#         self.token = in_token
-#         self.master = master
-#         self.label_text = tk.StringVar(self, "Select an item")
-#         self.pack(fill=tk.BOTH, expand=tk.YES)
-#         self.create_widgets()
-
-#     def create_widgets(self):
-#         scrollData = tk.StringVar()
-#         self.download_btn = tk.Button(self)
-#         self.open_folder_btn = tk.Button(self)
-#         self.chat_list = tk.Listbox(self, listvariable=scrollData)
-#         self.chat_list['width'] = 48
-#         self.chat_list['height'] = 32
-#         for c in self.chats:
-#             c = int(c)
-#             self.chat_list.insert('end', str(
-#                 c) + ': ' + self.chats[c]["topic"])
-#         self.download_btn["text"] = "Download Selected"
-#         self.open_folder_btn["text"] = "Open Download Folder"
-#         self.open_folder_btn["command"] = self.open_folder
-#         self.open_folder_btn.pack(side=tk.TOP)
-#         self.download_btn["command"] = self.download
-#         self.download_btn.pack(side=tk.TOP)
-#         self.chat_list.bind("<<ListboxSelect>>", self.on_lb_select)
-#         self.chat_list.pack(side="left", fill='y')
-
-#         self.lbl_chat_info = tk.Label(self, anchor='w')
-#         self.lbl_chat_info['width'] = 64
-#         self.lbl_chat_info['height'] = 12
-# #        self.lbl_chat_info['wraplength'] = 128
-#         self.lbl_chat_info['justify'] = tk.LEFT
-#         self.lbl_chat_info['textvariable'] = self.label_text
-#         self.lbl_chat_info.pack(side=tk.LEFT, fill='x')
-
-#         self.quit = tk.Button(self, text="QUIT", fg="red",
-#                               command=self.master.destroy)
-#         self.quit.pack(side="bottom")
+        self.chatList.InsertItems( [c["topic"] for k,c in chats.items()])
 
     def on_resize(self, event):
         # determine the ratio of old width/height to new width/height
@@ -346,6 +297,8 @@ async def download_chat(token: str, cookie: Dict, chat: Dict):
     chatDetailFull = []
     reqHost = "https://graph.microsoft.com/beta/me/chats/" + \
         chat['id'] + "/messages"
+    if not os.path.exists(chat['folder']):
+            os.mkdir(chat['folder'])
     outFile = open(chat['folder']+'/' +
                    chat['topic'] + '_chat_log.json', 'w')
     while True:
