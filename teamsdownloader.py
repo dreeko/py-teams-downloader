@@ -272,8 +272,6 @@ async def load_chats(token):
         print(str(i) + ': ' + chats[i]['topic'] + ' ::: ' + chats[i]['id'])
         for m in chats[i]['members']:
             print(m)
-        if not os.path.exists(chats[i]['folder']):
-            os.mkdir(chats[i]['folder'])
         i += 1
     await save_chat_cache(chats)
     return chats
@@ -297,6 +295,8 @@ def download_chat(token: str, cookie: Dict, chat: Dict):
     chatDetailFull = []
     reqHost = "https://graph.microsoft.com/beta/me/chats/" + \
         chat['id'] + "/messages"
+    if not os.path.exists(chat['folder']):
+        os.mkdir(chat['folder'])
     outFile = open(chat['folder']+'/' +
                    chat['topic'] + '_chat_log.json', 'w')
     while True:
