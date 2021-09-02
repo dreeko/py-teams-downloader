@@ -8,16 +8,9 @@ from pyppeteer.element_handle import ElementHandle
 import requests
 import shutil
 import os
-import datetime
 import time
 import tkinter as tk
 from tkinter import messagebox
-from concurrent.futures import ThreadPoolExecutor
-import certifi
-certifi.bootstrap.bootstrap()
-
-
-_executor = ThreadPoolExecutor(10)
 
 
 class Application(tk.Frame):
