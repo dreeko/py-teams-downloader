@@ -13,6 +13,9 @@ import time
 import tkinter as tk
 from tkinter import messagebox
 from concurrent.futures import ThreadPoolExecutor
+import certifi
+certifi.bootstrap.bootstrap()
+
 
 _executor = ThreadPoolExecutor(10)
 
@@ -199,7 +202,7 @@ async def load():
     minutes_15 = 900
     minutes_45 = 2700
     try:
-        if time.time() - os.stat('token.txt').st_mtime <= minutes_45:
+        if os.path.isfile('token.txt') and time.time() - os.stat('token.txt').st_mtime <= minutes_45:
             pass
         else:
             print("the token has timed out, refreshing now")
@@ -212,7 +215,7 @@ async def load():
         await graph(page=page1, url='https://developer.microsoft.com/en-us/graph/graph-explorer')
 
     try:
-        if time.time() - os.stat('cookie.json').st_mtime <= minutes_45:
+        if os.path.isfile('cookie.json') and time.time() - os.stat('cookie.json').st_mtime <= minutes_45:
             pass
         else:
             print("The cookie has timed out, refreshing now")
