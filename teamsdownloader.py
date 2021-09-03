@@ -178,15 +178,31 @@ async def graph(page: page.Page, url):
 
 
 async def launch_browser():
-    return await launch({'headless': False,
-                         'dumpio': True,
-                         'args': [
-                             '--disable-dev-shm-usage',
-                             '--shm-size=1gb'
-                             '--disable-gpu',
-                         ],
-                         'executablePath': 'C:\Program Files\Google\Chrome\Application\chrome.exe'
-                         })
+    browser: Browser = None
+    browser_path: str = ""
+    try:
+        if os.path.isfile("C:\Program Files\Google\Chrome\Application\chrome.exe"):
+            print("64bit chrome discovered")
+            browser_path = "C:\Program Files\Google\Chrome\Application\chrome.exe"
+        elif os.path.isfile("C:\Program Files (x86)\Google\Chrome\Application\chrome.exe"):
+            print("32bit chrome discovered")
+            browser_path = "C:\Program Files (x86)\Google\Chrome\Application\chrome.exe"
+        else:
+            print("Chrome not discovered, exiting")
+            exit()
+
+        browser = await launch({'headless': False,
+                            'dumpio': True,
+                            'args': [
+                                '--disable-dev-shm-usage',
+                                '--shm-size=1gb'
+                                '--disable-gpu',
+                            ],
+                            'executablePath': browser_path
+                            })
+    except Exception as e:
+        print("could not launch chrome !")
+    return browser
 
 
 async def load():
