@@ -233,7 +233,7 @@ async def load():
         if not browser:
             browser = await launch_browser()
         page2 = await browser.newPage()
-        await sharepoint(page2, 'https://inoffice.sharepoint.com/')
+        await sharepoint(page2, 'https://wapol-my.sharepoint.com/')
 
     cookie = await load_cookie()
     req_cookies = {}
