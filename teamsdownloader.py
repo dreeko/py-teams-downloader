@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 import asyncio
+from datetime import datetime
 from typing import Dict
 from pyppeteer import launch, page
 import json
@@ -11,6 +12,25 @@ import os
 import time
 import tkinter as tk
 from tkinter import messagebox
+
+from html.parser import HTMLParser
+
+
+class MyHTMLParser(HTMLParser):
+    image_srcs: list = []
+
+    def handle_starttag(self, tag, attrs):
+        #print("Start tag:", tag)
+        for attribute in attrs:
+            if attribute[0] == 'src':
+                self.image_srcs.append(attribute[1])
+
+    def close(self):
+        self.image_srcs = []
+        super().close()
+
+
+HTML_PARSER = MyHTMLParser()
 
 
 class Application(tk.Frame):
@@ -56,7 +76,7 @@ class Application(tk.Frame):
 #        self.lbl_chat_info['wraplength'] = 128
         self.lbl_chat_info['justify'] = tk.LEFT
         self.lbl_chat_info['textvariable'] = self.label_text
-        self.lbl_chat_info.pack(side=tk.LEFT, fill='x')
+        self.lbl_chat_info.pack(side=tk.LEFT, fill='both')
 
         self.quit = tk.Button(self, text="QUIT", fg="red",
                               command=self.master.destroy)
@@ -76,8 +96,8 @@ class Application(tk.Frame):
         index = int(w.curselection()[0])
         value = w.get(index)
         chat = self.chats[int(value.split(':')[0])]
-        self.label_text.set(chat['id'] + '\n' + chat['chat_type'] +
-                            '\n' + chat['topic'] + '\n' + '\n'.join(chat['members']))
+        self.label_text.set("Chat Id: " + '\n' + chat['id'] + '\n\n' + "Chat Type: " + '\n' + chat['chat_type'] +
+                            '\n\n' + "Chat Topic" + '\n' + chat['topic'] + '\n\n' + "Chat Participants" + '\n' + '\n'.join(chat['members']))
 
     def open_folder(self):
         selected: str = self.chat_list.selection_get()
@@ -127,10 +147,16 @@ async def save_token(token):
         file.write(token)
 
 
-def download_file(url, folder, cookie):
-    local_filename = url.split('/')[-1]
-    with requests.get(url, stream=True, cookies=cookie) as r:
-        with open(normalize_path(folder + '/' + local_filename), 'wb') as f:
+def download_file(url, folder, cookie, file_override: str = None, header=None):
+    local_filename: str
+    if file_override is None:
+        local_filename = url.split('/')[-1]
+    else:
+        print(file_override)
+        local_filename = file_override
+
+    with requests.get(url, stream=True, cookies=cookie, headers=header) as r:
+        with open(normalize_str(folder) + '/' + local_filename, 'wb') as f:
             shutil.copyfileobj(r.raw, f)
 
     return local_filename
@@ -273,7 +299,7 @@ async def load_chats(token):
 
     chats = {}
     chats_data = []
-    chaturl = 'https://graph.microsoft.com/beta/me/chats'
+    chaturl = 'https://graph.microsoft.com/beta/me/chats?$top=50'
     _headers = {'Authorization': 'Bearer ' + token}
     while True:
         data = requests.get(chaturl, headers=_headers).json()
@@ -288,9 +314,15 @@ async def load_chats(token):
     i = 1
     for v in chats_data:
         #print(str(i) + ': ' + (v['chatType'] or "No Chat type") + ' ::: ' + (v['topic'] or "No Topic") + ' - ' + (v['id'] or "No ID"))
-        chats[i] = {'id': v['id'], 'topic': (v['topic'] or "No_Topic"), 'chat_type': (
+
+        chats[i] = {'id': v['id'], 'topic': "No_Topic", 'chat_type': (
             v['chatType'] or "No Chat type"), 'folder': "default"}
-        chats[i]['folder'] = normalize_path(
+        chats[i]['members'] = await load_chat_members(token, chats[i]['id'])
+        if chats[i]['chat_type'] == "oneOnOne":
+            print("oneOnOne" + str(chats[i]['members']))
+        chats[i]["topic"] = chats[i]['members'][0] + "_" + (chats[i]['members'][1] if len(
+            chats[i]['members']) > 1 else "?????") if v['chatType'] == 'oneOnOne' else "No_Topic" if not v['topic'] else v['topic']
+        chats[i]['folder'] = normalize_str(
             chats[i]['topic'] + '_'+chats[i]['id'])
         chats[i]['members'] = await load_chat_members(token, chats[i]['id'])
         print(str(i) + ': ' + chats[i]['topic'] + ' ::: ' + chats[i]['id'])
@@ -318,12 +350,12 @@ def download_chat(token: str, cookie: Dict, chat: Dict):
     _headers = {'Authorization': 'Bearer ' + token}
     chatDetailFull = []
     reqHost = "https://graph.microsoft.com/beta/me/chats/" + \
-        chat['id'] + "/messages"
-    if not os.path.exists(normalize_path(chat['folder'])):
-        os.mkdir(normalize_path(chat['folder']))
+        chat['id'] + "/messages" + '?$top=50'
+    if not os.path.exists(normalize_str(chat['folder'])):
+        os.mkdir(normalize_str(chat['folder']))
 
-    outFile = open(normalize_path(chat['folder'])+'/' +
-                   chat['topic'] + '_chat_log.json', 'w')
+    outFile = open(normalize_str(chat['folder'])+'/' +
+                   normalize_str(chat['topic'], False) + '_chat_log.json', 'w')
 
     while True:
         chatDetail = []
@@ -332,6 +364,17 @@ def download_chat(token: str, cookie: Dict, chat: Dict):
         if "value" in chatDetail:
             chatDetailFull.extend(chatDetail["value"])
             for val in chatDetail["value"]:
+                if 'graph' in val["body"]["content"]:
+                    HTML_PARSER.feed(val["body"]["content"])
+                    img_loop_c = 0
+                    for src in HTML_PARSER.image_srcs:
+                        msg_time: datetime = datetime.strptime(
+                            val["lastModifiedDateTime"], "%Y-%m-%dT%H:%M:%S.%f%z")
+                        download_file(src, chat['folder'], cookie=cookie, file_override=msg_time.strftime(
+                            "%Y%m%d%H%M") + "_" + val["from"]["user"]["displayName"] + "_" + str(img_loop_c) + ".jpg", header=_headers)
+                        img_loop_c = img_loop_c + 1
+                    HTML_PARSER.reset()
+                    HTML_PARSER.close()
                 for attach in val["attachments"]:
                     print(attach["contentUrl"])
                     if attach["contentType"] == "reference":
@@ -343,7 +386,9 @@ def download_chat(token: str, cookie: Dict, chat: Dict):
             print(chatDetail)
 
         if "@odata.nextLink" in chatDetail and chatDetail["@odata.nextLink"] != reqHost:
+            print(chatDetail["@odata.nextLink"])
             reqHost = chatDetail["@odata.nextLink"]
+
         else:
             outFile.write(json.dumps(chatDetailFull, indent=2))
 
@@ -351,8 +396,8 @@ def download_chat(token: str, cookie: Dict, chat: Dict):
     return
 
 
-def normalize_path(path: str):
-    ret: str = path
+def normalize_str(in_str: str, path: bool = True):
+    ret: str = in_str
     for x in '<>:"/\|?* ':
         ret = ret.replace(x, '_')
     return os.path.normpath(ret)
