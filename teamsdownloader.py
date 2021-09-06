@@ -33,7 +33,8 @@ class Application(tk.Frame):
         scrollData = tk.StringVar()
         self.download_btn = tk.Button(self)
         self.open_folder_btn = tk.Button(self)
-        self.chat_list = tk.Listbox(self, listvariable=scrollData)
+        self.chat_list = tk.Listbox(
+            self, listvariable=scrollData, selectmode="multiple")
         self.chat_list['width'] = 48
         self.chat_list['height'] = 32
         for c in self.chats:
@@ -84,11 +85,21 @@ class Application(tk.Frame):
         os.startfile(chat['folder'])
 
     def download(self):
-        selected: str = self.chat_list.selection_get()
-        print("Downloading Chat: " + selected)
-        download_chat(cookie=self.cookie, token=self.token,
-                      chat=self.chats[int(selected.split(':')[0])])
-# Save cookie
+        chat: Dict = {}
+        folders = []
+        for selected in self.chat_list.selection_get().split('\n'):
+            print("Downloading Chat: " + selected)
+            chat = self.chats[int(selected.split(':')[0])]
+            download_chat(cookie=self.cookie, token=self.token,
+                          chat=chat)
+            folders.append(chat['folder'])
+        print("Done, Output can be found here: " +
+              '\n'.join(folder for folder in folders))
+        if len(self.chat_list.selection_get().split('\n')) == 1:
+            res = messagebox.askquestion(
+                'Open dl folder', 'Would you like to open the download folder?')
+            if res == 'yes':
+                os.startfile(chat["folder"])
 
 
 async def save_cookie(cookie):
@@ -119,7 +130,7 @@ async def save_token(token):
 def download_file(url, folder, cookie):
     local_filename = url.split('/')[-1]
     with requests.get(url, stream=True, cookies=cookie) as r:
-        with open(folder + '/' + local_filename, 'wb') as f:
+        with open(normalize_path(folder + '/' + local_filename), 'wb') as f:
             shutil.copyfileobj(r.raw, f)
 
     return local_filename
@@ -165,9 +176,9 @@ async def graph(page: page.Page, url):
     await page.keyboard.press('Enter')
     await page.click('button[name^=Modify')
     await page.waitForXPath("//button[contains(., 'Consent')][1]")
-    btn : ElementHandle = await page.xpath("//button[contains(., 'Consent')][1]")
+    btn: ElementHandle = await page.xpath("//button[contains(., 'Consent')][1]")
     await btn[0].click()
-    #await page.waitForXPath("//label[@class='ms-Label consented-300']")
+    # await page.waitForXPath("//label[@class='ms-Label consented-300']")
     await page.waitForXPath("//span[text()='Consented']")
     await page.click('button[name^=Access')
     await page.waitForSelector('label.ms-Label:nth-child(2)', {'timeout': 300000})
@@ -192,14 +203,14 @@ async def launch_browser():
             exit()
 
         browser = await launch({'headless': False,
-                            'dumpio': True,
-                            'args': [
-                                '--disable-dev-shm-usage',
-                                '--shm-size=1gb'
-                                '--disable-gpu',
-                            ],
-                            'executablePath': browser_path
-                            })
+                                'dumpio': True,
+                                'args': [
+                                    '--disable-dev-shm-usage',
+                                    '--shm-size=1gb'
+                                    '--disable-gpu',
+                                ],
+                                'executablePath': browser_path
+                                })
     except Exception as e:
         print("could not launch chrome !")
     return browser
@@ -233,7 +244,8 @@ async def load():
         if not browser:
             browser = await launch_browser()
         page2 = await browser.newPage()
-        await sharepoint(page2, 'https://wapol-my.sharepoint.com/')
+        # await sharepoint(page2, 'https://wapol-my.sharepoint.com/')
+        await sharepoint(page2, 'https://inoffice.sharepoint.com/')
 
     cookie = await load_cookie()
     req_cookies = {}
@@ -278,9 +290,8 @@ async def load_chats(token):
         #print(str(i) + ': ' + (v['chatType'] or "No Chat type") + ' ::: ' + (v['topic'] or "No Topic") + ' - ' + (v['id'] or "No ID"))
         chats[i] = {'id': v['id'], 'topic': (v['topic'] or "No_Topic"), 'chat_type': (
             v['chatType'] or "No Chat type"), 'folder': "default"}
-        chats[i]['folder'] = chats[i]['topic'] + \
-            '_'+chats[i]['id'].replace(':', '')
-
+        chats[i]['folder'] = normalize_path(
+            chats[i]['topic'] + '_'+chats[i]['id'])
         chats[i]['members'] = await load_chat_members(token, chats[i]['id'])
         print(str(i) + ': ' + chats[i]['topic'] + ' ::: ' + chats[i]['id'])
         for m in chats[i]['members']:
@@ -308,10 +319,12 @@ def download_chat(token: str, cookie: Dict, chat: Dict):
     chatDetailFull = []
     reqHost = "https://graph.microsoft.com/beta/me/chats/" + \
         chat['id'] + "/messages"
-    if not os.path.exists(chat['folder']):
-        os.mkdir(chat['folder'])
-    outFile = open(chat['folder']+'/' +
+    if not os.path.exists(normalize_path(chat['folder'])):
+        os.mkdir(normalize_path(chat['folder']))
+
+    outFile = open(normalize_path(chat['folder'])+'/' +
                    chat['topic'] + '_chat_log.json', 'w')
+
     while True:
         chatDetail = []
         chatDetail = requests.get(reqHost, headers=_headers).json()
@@ -333,12 +346,16 @@ def download_chat(token: str, cookie: Dict, chat: Dict):
             reqHost = chatDetail["@odata.nextLink"]
         else:
             outFile.write(json.dumps(chatDetailFull, indent=2))
-            print("Done, Output can be found here: " + chat["folder"])
-            res = messagebox.askquestion('Open dl folder', 'Would you like to open the download folder?')
-            if res == 'yes':
-                os.startfile(chat["folder"])
+
             break
     return
+
+
+def normalize_path(path: str):
+    ret: str = path
+    for x in '<>:"/\|?* ':
+        ret = ret.replace(x, '_')
+    return os.path.normpath(ret)
 
 
 async def main():
