@@ -39,6 +39,7 @@ class Application(tk.Frame):
     token: str
     label_text: tk.StringVar
 
+
     def __init__(self, master=None, in_cookie: Dict = None, in_token: str = None, in_chats: Dict = None):
         super().__init__(master)
         self.chats = in_chats
@@ -242,7 +243,7 @@ async def launch_browser():
     return browser
 
 
-async def load():
+async def load(sharepoint_page: str):
     browser: Browser = None
 
     minutes_15 = 900
@@ -270,8 +271,8 @@ async def load():
         if not browser:
             browser = await launch_browser()
         page2 = await browser.newPage()
-        # await sharepoint(page2, 'https://wapol-my.sharepoint.com/')
-        await sharepoint(page2, 'https://inoffice.sharepoint.com/')
+        await sharepoint(page2, sharepoint_page)
+        #await sharepoint(page2, 'https://inoffice.sharepoint.com/')
 
     cookie = await load_cookie()
     req_cookies = {}
@@ -404,8 +405,10 @@ def normalize_str(in_str: str, path: bool = True):
 
 
 async def main():
+    #sharepoint_page : str = 'https://inoffice.sharepoint.com/'
+    sharepoint_page : str = 'https://wapol-my.sharepoint.com/'
     print("Initializing App")
-    (cookie, token) = await load()
+    (cookie, token) = await load(sharepoint_page)
     print("Auth has loaded")
     chats = await load_chats(token=token)
     print("Chats have been loaded")
