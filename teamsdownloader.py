@@ -1,7 +1,9 @@
 # -*- coding: utf-8 -*-
 import asyncio
 from datetime import datetime
-from typing import Dict
+from enum import Enum
+import pathlib
+from typing import Dict, MutableSet
 from pyppeteer import launch, page
 import json
 from pyppeteer.browser import Browser
@@ -14,6 +16,37 @@ import tkinter as tk
 from tkinter import messagebox
 
 from html.parser import HTMLParser
+
+from websockets import uri
+
+"""
+chats[i] = {'id': v['id'], 'topic': "No_Topic", 'chat_type': (
+            v['chatType'] or "No Chat type"), 'folder': "default"}
+        chats[i]['members'] = await load_chat_members(token, chats[i]['id'])
+        if chats[i]['chat_type'] == "oneOnOne":
+            print("oneOnOne" + str(chats[i]['members']))
+            """
+class ChatType(Enum):
+    CHANNEL = 1
+    ROOM    = 2
+
+class RoomType(Enum):
+    ONE_ON_ONE = 1 # between two people
+    GROUP = 2 # more than two people
+    CHANNEL = 3 # a channel
+
+class ChatMember():
+    name: str
+    id: str
+
+
+class TeamsChat():
+    id: str
+    topic: str
+    room_type: ChatType #channel or group
+    chat_type: RoomType
+    folder: str
+    members: MutableSet
 
 
 class MyHTMLParser(HTMLParser):
@@ -270,8 +303,8 @@ async def load():
         if not browser:
             browser = await launch_browser()
         page2 = await browser.newPage()
-        # await sharepoint(page2, 'https://wapol-my.sharepoint.com/')
-        await sharepoint(page2, 'https://inoffice.sharepoint.com/')
+        await sharepoint(page2, 'https://wapol-my.sharepoint.com/')
+        #await sharepoint(page2, 'https://inoffice.sharepoint.com/')
 
     cookie = await load_cookie()
     req_cookies = {}
