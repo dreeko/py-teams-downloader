@@ -139,17 +139,7 @@ class Application(tk.Frame):
 
 
 
-async def load_chat_members(token: str, chatID: str):
-    _headers = {'Authorization': 'Bearer ' + token}
-    members = []
-    membersURL = 'https://graph.microsoft.com/beta/me/chats/' + chatID + '/members'
-    members_resp = requests.get(membersURL, headers=_headers).json()
-    if "value" in members_resp:
-        for v in members_resp["value"]:
-            members.append(v['displayName'])
-    else:
-        print(json.dumps(members_resp))
-    return members
+
 
 
 def download_chat(token: str, cookie: Dict, chat: Dict):

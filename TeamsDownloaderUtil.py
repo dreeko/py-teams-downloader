@@ -20,6 +20,7 @@ from tkinter import messagebox
 import aiohttp
 import aiofiles
 import asyncio
+import jsons
 
 
 from html.parser import HTMLParser
@@ -62,7 +63,7 @@ class TeamsDownloaderUtil():
         return browser
 
     async def save_file(self, payload, file_path: str, is_json: bool = False):
-        data = await asyncio.to_thread(json.dumps, payload) if is_json else payload
+        data = jsons.dumps(payload) if is_json else payload
         async with aiofiles.open(file_path, 'w+', encoding="utf-8") as file:
             await file.write(data)
 
@@ -88,7 +89,7 @@ class TeamsDownloaderUtil():
 
         return local_filename
 
-    async def normalize_str(self, in_str: str, path: bool = True):
+    async def normalize_str( in_str: str, path: bool = True):
         ret: str = in_str
         for x in '<>:"/\|?* ':
             ret = ret.replace(x, '_')
