@@ -3,6 +3,7 @@ import asyncio
 from datetime import datetime
 from enum import Enum
 import pathlib
+from TeamsDownloader import TeamsChat, TeamsDownloader
 from typing import Dict, MutableSet
 from pyppeteer import launch, page
 import json
@@ -19,7 +20,12 @@ from html.parser import HTMLParser
 
 from websockets import uri
 
+from TeamsDownloader import TeamsDownloader
+from TeamsDownloader import TeamsChat
 
+import wx
+from wx.core import ListBox
+from wxasync import AsyncBind, WxAsyncApp, StartCoroutine
 
 
 class MyHTMLParser(HTMLParser):
@@ -39,75 +45,66 @@ class MyHTMLParser(HTMLParser):
 HTML_PARSER = MyHTMLParser()
 
 
-class Application(tk.Frame):
-    chats: Dict
-    cookie: Dict
+class MainFrame(wx.Frame):
+    cookies: dict
     token: str
-    label_text: tk.StringVar
+    chats: dict
+    chatList: ListBox
 
-    def __init__(self, master=None, in_cookie: Dict = None, in_token: str = None, in_chats: Dict = None):
-        super().__init__(master)
-        self.chats = in_chats
-        self.cookie = in_cookie
-        self.token = in_token
-        self.master = master
-        self.label_text = tk.StringVar(self, "Select an item")
-        self.pack(fill=tk.BOTH, expand=tk.YES)
-        self.create_widgets()
+    def __init__(self, parent=None):
+        super(MainFrame, self).__init__(parent)
+        StartCoroutine(self.init, self)
+        
+    async def init(self):
+        self.cookies = {}
+        self.token = ""
+        self.chatList = None
+        self.downloader = TeamsDownloader()
+        button1 =  wx.Button(self, label="load chats")
+        
+        #AsyncBind(wx.EVT_WINDOW_CREATE, self.downloader.init, self)
+        #StartCoroutine(self.downloader.init(self.populate_chat_list), self)
+        
+        hbox = wx.BoxSizer(wx.HORIZONTAL)
+        hbox.Add(button1, 2, wx.EXPAND|wx.ALL)
+        self.chatList = wx.ListBox(self, style=wx.LB_SINGLE, choices=[])
+        #button1 =  wx.Button(self, label="Submit")
+        self.status_text = wx.StaticText(
+            self, style=wx.ALIGN_CENTRE_HORIZONTAL | wx.ST_NO_AUTORESIZE)
 
-    def create_widgets(self):
-        scrollData = tk.StringVar()
-        self.download_btn = tk.Button(self)
-        self.open_folder_btn = tk.Button(self)
-        self.chat_list = tk.Listbox(
-            self, listvariable=scrollData, selectmode="multiple")
-        self.chat_list['width'] = 48
-        self.chat_list['height'] = 32
-        for c in self.chats:
-            c = int(c)
-            self.chat_list.insert('end', str(
-                c) + ': ' + self.chats[c]["topic"])
-        self.download_btn["text"] = "Download Selected"
-        self.open_folder_btn["text"] = "Open Download Folder"
-        self.open_folder_btn["command"] = self.open_folder
-        self.open_folder_btn.pack(side=tk.TOP)
-        self.download_btn["command"] = self.download
-        self.download_btn.pack(side=tk.TOP)
-        self.chat_list.bind("<<ListboxSelect>>", self.on_lb_select)
-        self.chat_list.pack(side="left", fill='y')
+        hbox.Add(self.chatList, 2, wx.EXPAND | wx.ALL)
+        hbox.AddStretchSpacer(1)
+        hbox.Add(self.status_text, 1, wx.EXPAND | wx.ALL)
 
-        self.lbl_chat_info = tk.Label(self, anchor='w')
-        self.lbl_chat_info['width'] = 64
-        self.lbl_chat_info['height'] = 12
-#        self.lbl_chat_info['wraplength'] = 128
-        self.lbl_chat_info['justify'] = tk.LEFT
-        self.lbl_chat_info['textvariable'] = self.label_text
-        self.lbl_chat_info.pack(side=tk.LEFT, fill='both')
+        self.SetSizer(hbox)
+        self.Layout()
+        AsyncBind(wx.EVT_LISTBOX, self.lb_select, self.chatList)
+        await self.downloader.init()
+        await self.populate_chat_list()
+        #AsyncBind(wx.EVT_BUTTON, self.downloader.init(callback=self.populate_chat_list), button1)
+        #AsyncBind(wx.EVT_BUTTON, self.async_callback, button1)
 
-        self.quit = tk.Button(self, text="QUIT", fg="red",
-                              command=self.master.destroy)
-        self.quit.pack(side="bottom")
 
-    def on_resize(self, event):
-        # determine the ratio of old width/height to new width/height
-        wscale = event.width/self.width
-        hscale = event.height/self.height
-        self.width = event.width
-        self.height = event.height
-        # rescale all the objects
-        self.scale("all", 0, 0, wscale, hscale)
+    async def lb_select(self, evt):
+        print("wat")
+        sel_chat: TeamsChat = self.downloader.chats[self.chatList.GetSelection()]
+        topic: str = sel_chat.topic
+        self.status_text.SetLabel(self.status_text.LabelText + '\n' + topic)
+        self.status_text.SetLabel(
+            self.status_text.LabelText + '\n'.join([x.name for x in sel_chat.members]))
 
-    def on_lb_select(self, event):
-        w = event.widget
-        index = int(w.curselection()[0])
-        value = w.get(index)
-        chat = self.chats[int(value.split(':')[0])]
-        self.label_text.set("Chat Id: " + '\n' + chat['id'] + '\n\n' + "Chat Type: " + '\n' + chat['chat_type'] +
-                            '\n\n' + "Chat Topic" + '\n' + chat['topic'] + '\n\n' + "Chat Participants" + '\n' + '\n'.join(chat['members']))
+    async def update_clock(self):
+        while True:
+            self.edit_timer.SetLabel(time.strftime('%H:%M:%S'))
+            await asyncio.sleep(0.5)
+
+    async def populate_chat_list(self):
+        topics = [x.topic for k,x in self.downloader.chats.items()]
+        self.chatList.InsertItems([x.topic for k,x in self.downloader.chats.items()], 0)
 
     def open_folder(self):
         selected: str = self.chat_list.selection_get()
-        chat = self.chats[int(selected.split(':')[0])]
+        chat = self.downloader.chats[int(selected.split(':')[0])]
         os.startfile(chat['folder'])
 
     def download(self):
@@ -115,7 +112,7 @@ class Application(tk.Frame):
         folders = []
         for selected in self.chat_list.selection_get().split('\n'):
             print("Downloading Chat: " + selected)
-            chat = self.chats[int(selected.split(':')[0])]
+            chat = self.downloader.chats[int(selected.split(':')[0])]
             download_chat(cookie=self.cookie, token=self.token,
                           chat=chat)
             folders.append(chat['folder'])
@@ -126,20 +123,6 @@ class Application(tk.Frame):
                 'Open dl folder', 'Would you like to open the download folder?')
             if res == 'yes':
                 os.startfile(chat["folder"])
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 
 def download_chat(token: str, cookie: Dict, chat: Dict):
@@ -190,26 +173,3 @@ def download_chat(token: str, cookie: Dict, chat: Dict):
 
             break
     return
-
-
-
-
-
-async def main():
-    print("Initializing App")
-    teams_downloader = TeamsDownloader()
-    await teams_downloader.init()
-    (cookie, token) = await load()
-    print("Auth has loaded")
-    chats = await load_chats(token=token)
-    print("Chats have been loaded")
-    root = tk.Tk()
-    app = Application(master=root, in_cookie=cookie,
-                      in_token=token, in_chats=chats)
-    app.pack(fill=tk.BOTH, expand=tk.YES)
-    print("Entering GUI Main loop")
-    app.mainloop()
-
- # Entrance run
-if __name__ == '__main__':
-    asyncio.get_event_loop().run_until_complete(main())

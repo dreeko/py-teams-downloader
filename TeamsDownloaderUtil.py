@@ -12,7 +12,6 @@ import json
 from pyppeteer.browser import Browser
 from pyppeteer.element_handle import ElementHandle
 import requests
-import shutil
 import os
 import time
 import tkinter as tk
@@ -20,7 +19,7 @@ from tkinter import messagebox
 import aiohttp
 import aiofiles
 import asyncio
-import jsons
+import jsonpickle as jp
 
 
 from html.parser import HTMLParser
@@ -63,14 +62,14 @@ class TeamsDownloaderUtil():
         return browser
 
     async def save_file(self, payload, file_path: str, is_json: bool = False):
-        data = jsons.dumps(payload) if is_json else payload
+        data = jp.encode(payload, unpicklable=False, max_depth=4) if is_json else payload
         async with aiofiles.open(file_path, 'w+', encoding="utf-8") as file:
             await file.write(data)
 
     async def load_file(self, file_path: str, is_json: bool = True) -> Dict:
         async with aiofiles.open(file_path, 'r', encoding="utf-8") as file:
             if (is_json):
-                data = json.loads(await file.read())
+                data = jp.decode(await file.read())
             else:
                 data = await file.read()
         return data

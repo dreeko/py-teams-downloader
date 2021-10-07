@@ -1,4 +1,4 @@
-from typing import MutableSet, Dict
+from typing import Coroutine, MutableSet, Dict
 from enum import Enum
 import aiofiles
 import aiohttp
@@ -39,10 +39,10 @@ class TeamsChat():
     id: str
     topic: str
     room_type: ChatType  # channel or group
-    chat_type: RoomType
+    chatType: RoomType
     folder: str
-    members: MutableSet
-    http_client: aiohttp.ClientSession 
+    members: 'MutableSet[ChatMember]'
+    _http_client: aiohttp.ClientSession 
 
     def __init__(self) -> None:
         pass
@@ -54,7 +54,7 @@ class TeamsChat():
         self.members = await self.load_chat_members(self.id)
         self.topic = self.members[0].name + "_" + (self.members[1].name if len(
             self.members) > 1 else "?????") if v['chatType'] == 'oneOnOne' else "No_Topic" if not v['topic'] else v['topic']
-        self.chat_type = v['chatType'] or "No Chat type"
+        self.chatType = v['chatType'] or "No Chat type"
         self.folder = await TeamsDownloaderUtil.normalize_str(
             self.topic + '_' + self.id)
         return self
@@ -74,20 +74,24 @@ class TeamsChat():
 
 class TeamsDownloader():
     chats: 'dict[int, TeamsChat]' = {}
-    sharepoint_cookie: Dict = {}
-    graph_token: str = ""
-    teams_util = TeamsDownloaderUtil()
+    _sharepoint_cookie: Dict = {}
+    _graph_token: str = ""
+    _teams_util = TeamsDownloaderUtil()
 
     def __init__(self) -> None:
         pass
 
-    async def init(self) -> None:
+    async def init(self, callback: Coroutine=None) -> None:
         await self.load_auth()
-        await self.teams_util.init_http(in_cookies=self.sharepoint_cookie, in_headers={'Authorization': 'Bearer ' + self.graph_token})
+        await self._teams_util.init_http(in_cookies=self.sharepoint_cookie, in_headers={'Authorization': 'Bearer ' + self.graph_token})
         await self.load_chats()
 
         for k, v in self.chats.items():
-            print(v)
+            print(v.topic)
+
+
+        
+
 
     async def load_graph_explorer_token(self, page: page.Page, url):
         token_element: ElementHandle
@@ -110,7 +114,7 @@ class TeamsDownloader():
         token_element = await page.querySelector('label.ms-Label:nth-child(2)')
         token = await page.evaluate('(element) => element.textContent', token_element)
         print('found token' + token)
-        await self.teams_util.save_file(token, "token.txt")
+        await self._teams_util.save_file(token, "token.txt")
 
     async def load_sharepoint_cookies(self, page, url):
         await page.setViewport({'width': 1366, 'height': 768})
@@ -121,30 +125,30 @@ class TeamsDownloader():
         print('found selector')
         await asyncio.sleep(2)
         cookies = await page.cookies()
-        await self.teams_util.save_file(cookies, "cookie.json", True)
+        await self._teams_util.save_file(cookies, "cookie.json", True)
         print('found cookies: ' + str(cookies))
 
     async def load_auth(self):
         browser: Browser = None
-        if(not(await self.teams_util.file_within_age_threshold("token.txt", 2700))):
+        if(not(await self._teams_util.file_within_age_threshold("token.txt", 2700))):
             if (not browser):
-                browser = await self.teams_util.launch_browser()
+                browser = await self._teams_util.launch_browser()
             page1 = await browser.pages()
             page1 = page1[0]
             await self.load_graph_explorer_token(page=page1, url='https://developer.microsoft.com/en-us/graph/graph-explorer')
 
-        if(not(await self.teams_util.file_within_age_threshold("cookie.json", 2700))):
+        if(not(await self._teams_util.file_within_age_threshold("cookie.json", 2700))):
             if (not browser):
-                browser = await self.teams_util.launch_browser()
+                browser = await self._teams_util.launch_browser()
             page2 = await browser.newPage()
             # await self.load_sharepoint_cookies(page2, 'https://wapol-my.sharepoint.com/')
             await self.load_sharepoint_cookies(page2, 'https://inoffice.sharepoint.com/')
 
-        cookie = await self.teams_util.load_file("cookie.json", is_json=True)
+        cookie = await self._teams_util.load_file("cookie.json", is_json=True)
         req_cookies = {}
         for entry in cookie:
             req_cookies[entry['name']] = entry['value']
-        token = await self.teams_util.load_file("token.txt", is_json=False)
+        token = await self._teams_util.load_file("token.txt", is_json=False)
 
         try:
             await browser.close()
@@ -155,64 +159,45 @@ class TeamsDownloader():
         return [req_cookies, token]
 
     async def load_chats(self):
+        chats_data = []
         try:
             if os.path.isfile('./chats.json'):
                 print("Chat Cache Exists, utlizing it")
-                return await self.load_chat_cache()
+                await self.load_chat_cache()
+                return
             else:
                 print("Chat Cache Doesn't Exist, Refreshing")
+                
+                chaturl = 'https://graph.microsoft.com/beta/me/chats?$top=50'
+
+                while True:
+                    async with self._teams_util.http_client.get(chaturl) as resp:
+                        data = await resp.json()
+                    if "value" in data:
+                        chats_data.extend(data["value"])
+                        if "@odata.nextLink" in data and data["@odata.nextLink"] != chaturl:
+                            chaturl = data["@odata.nextLink"]
+                        else:
+                            break
+                    else:
+                        break
         except Exception as e:
-            print("Chat Cache Doesn't Exist, Refreshing -- ")
+            print("Exception loading chats -- ")
             print(e)
 
-        chats_data = []
-        chaturl = 'https://graph.microsoft.com/beta/me/chats?$top=50'
-
-        while True:
-            async with self.teams_util.http_client.get(chaturl) as resp:
-                data = await resp.json()
-            if "value" in data:
-                chats_data.extend(data["value"])
-                if "@odata.nextLink" in data and data["@odata.nextLink"] != chaturl:
-                    chaturl = data["@odata.nextLink"]
-                else:
-                    break
-            else:
-                break
+        
 
         for i, v in enumerate(chats_data):
-            new_chat = TeamsChat(self.teams_util.http_client)
-            #print(str(i) + ': ' + (v['chatType'] or "No Chat type") + ' ::: ' + (v['topic'] or "No Topic") + ' - ' + (v['id'] or "No ID"))
-            # temp_chat = TeamsChat(v)
-            # temp_chat.id = v["id"]
-            # temp_chat.members = await self.load_chat_members(temp_chat.id)
-            # temp_chat.topic = temp_chat.members[0] + "_" + (temp_chat.members[1] if len(
-            #     temp_chat.members) > 1 else "?????") if v['chatType'] == 'oneOnOne' else "No_Topic" if not v['topic'] else v['topic']
-            # temp_chat.chat_type = v['chatType'] or "No Chat type"
-            # temp_chat.folder = await self.teams_util.normalize_str(
-            #     temp_chat.topic + '_' + temp_chat.id)
+            new_chat = TeamsChat(self._teams_util.http_client)
             self.chats[i] = await new_chat.create_chat(v)
 
-            # chats[i] = {'id': v['id'], 'topic': "No_Topic", 'chat_type': (
-            #     v['chatType'] or "No Chat type"), 'folder': "default"}
-            # chats[i]['members'] = await self.load_chat_members(temp_chat.id)
-            # if chats[i]['chat_type'] == "oneOnOne":
-            #     print("oneOnOne" + str(chats[i]['members']))
-            # chats[i]["topic"] = chats[i]['members'][0] + "_" + (chats[i]['members'][1] if len(
-            #     chats[i]['members']) > 1 else "?????") if v['chatType'] == 'oneOnOne' else "No_Topic" if not v['topic'] else v['topic']
-            # chats[i]['folder'] = await self.teams_util.normalize_str(
-            #     chats[i]['topic'] + '_'+chats[i]['id'])
-            # print(str(i) + ': ' + chats[i]['topic'] + ' ::: ' + chats[i]['id'])
-            # for m in chats[i]['members']:
-            #     print(m)
-        await self.teams_util.save_file(self.chats, "chats.json", True)
+        await self._teams_util.save_file(self.chats, "chats.json", True)
 
     async def load_chat_cache(self):
-        f = await self.teams_util.load_file("chats.json", is_json=True)
-        chats = {}
+        print('loading chats from cached chats.json')
+        f = await self._teams_util.load_file("chats.json", is_json=True)
         for k, v in f.items():
-            new_chat = TeamsChat(self.teams_util.http_client)
-            chats[int(k)] = await new_chat.create_chat(v)
-        return chats
+            new_chat = TeamsChat(self._teams_util.http_client)
+            self.chats[int(k)] = await new_chat.create_chat(v)
 
     

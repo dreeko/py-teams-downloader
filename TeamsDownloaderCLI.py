@@ -1,12 +1,17 @@
 import asyncio
 import TeamsDownloader
-
-async def main():
-    td = TeamsDownloader.TeamsDownloader()
-    await td.init()
+from TeamsDownloaderApp import MainFrame
+import tkinter as tk
+from wxasync  import StartCoroutine, WxAsyncApp
+ 
 
 if __name__ == '__main__':
+    print("Initializing App")
+    app = WxAsyncApp()
+    frame = MainFrame()
+    frame.Show()
+    app.SetTopWindow(frame)
     loop = asyncio.get_event_loop()
-    loop.run_until_complete(main())
-    loop.run_until_complete(asyncio.sleep(0.250))
-    loop.close()
+    loop.run_until_complete(app.MainLoop())
+
+    
