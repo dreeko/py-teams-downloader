@@ -81,6 +81,14 @@ class TeamsDownloader():
     def __init__(self) -> None:
         pass
 
+    def __getstate__(self):
+        state = self.__dict__.copy()
+        del state['_teams_util']
+    return state
+
+    def __setstate__(self, state):
+        self.__dict__.update(state)
+
     async def init(self, callback: Coroutine=None) -> None:
         await self.load_auth()
         await self._teams_util.init_http(in_cookies=self.sharepoint_cookie, in_headers={'Authorization': 'Bearer ' + self.graph_token})

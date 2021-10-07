@@ -66,9 +66,10 @@ class MainFrame(wx.Frame):
         #StartCoroutine(self.downloader.init(self.populate_chat_list), self)
         
         hbox = wx.BoxSizer(wx.HORIZONTAL)
-        hbox.Add(button1, 2, wx.EXPAND|wx.ALL)
-        self.chatList = wx.ListBox(self, style=wx.LB_SINGLE, choices=[])
-        #button1 =  wx.Button(self, label="Submit")
+        #vbox = wx.BoxSizer(wx.VERTICAL)
+        #vbox.Add(button1, 1, wx.EXPAND|wx.ALL)
+        #hbox.Add(hbox, wx.EXPAND|wx.ALL)
+        self.chatList = wx.ListBox(self, style=wx.LB_MULTIPLE, choices=[])
         self.status_text = wx.StaticText(
             self, style=wx.ALIGN_CENTRE_HORIZONTAL | wx.ST_NO_AUTORESIZE)
 
@@ -89,6 +90,7 @@ class MainFrame(wx.Frame):
         print("wat")
         sel_chat: TeamsChat = self.downloader.chats[self.chatList.GetSelection()]
         topic: str = sel_chat.topic
+        self.status_text.SetLabel("")
         self.status_text.SetLabel(self.status_text.LabelText + '\n' + topic)
         self.status_text.SetLabel(
             self.status_text.LabelText + '\n'.join([x.name for x in sel_chat.members]))
