@@ -1,13 +1,10 @@
 from typing import Coroutine, MutableSet, Dict, List
 from enum import Enum
 import aiofiles
-import aiohttp
 from pyppeteer import launch, page
 import json
 from pyppeteer.browser import Browser
 from pyppeteer.element_handle import ElementHandle
-import requests
-import shutil
 import os
 import time
 import asyncio
@@ -58,6 +55,7 @@ class TeamsChat():
     folder: str
     members: 'MutableSet[ChatMember]'
     _util: TeamsDownloaderUtil
+    base_msg_url: str
 
     def __init__(self) -> None:
         pass
@@ -66,7 +64,9 @@ class TeamsChat():
         self._util = in_util
 
     async def create_chat(self, v: Dict):
+
         self.id = v["id"]
+        self.base_msg_url = f"https://graph.microsoft.com/beta/me/chats/{self.id}/messages?$top=50"
         self.members = await self.load_chat_members(self.id)
         self.topic = self.members[0].name + "_" + (self.members[1].name if len(
             self.members) > 1 else "?????") if v['chatType'] == 'oneOnOne' else "No_Topic" if not v['topic'] else v['topic']
@@ -89,8 +89,7 @@ class TeamsChat():
 
     async def download(self):
         chatDetailFull = []
-        reqHost = "https://graph.microsoft.com/beta/me/chats/" + \
-            self.id + "/messages" + '?$top=50'
+        reqHost = self.base_msg_url
         if not os.path.exists(await self._util.normalize_str(self.folder)):
             os.mkdir(await self._util.normalize_str(self.folder))
 
@@ -133,15 +132,56 @@ class TeamsChat():
                 reqHost = chatDetail["@odata.nextLink"]
 
             else:
-                with aiofiles.open(await self._util.normalize_str(self.folder)+'/' + await self._util.normalize_str(self.topic, False) + '_chat_log.json', 'w') as f:
+                async with aiofiles.open(await self._util.normalize_str(self.folder)+'/' + await self._util.normalize_str(self.topic, False) + '_chat_log.json', 'w') as f:
                     await f.write(json.dumps(chatDetailFull, indent=2))
 
                 break
         return
 
 
+class TeamsChannel(TeamsChat):
+    id: str
+    display_name: str
+    description: str
+    team_id: str
+    team_name: str
+
+    def __init__(self, obj, in_util: TeamsDownloaderUtil) -> None:
+        super(TeamsChannel, self).__init__(in_util=in_util)
+        self.id = obj["id"]
+        self.display_name = obj["displayName"]
+        self.description = obj["description"]
+        self.team_name = obj["team_name"]
+        self.team_id = obj["team_id"]
+        self.base_msg_url = f'https://graph.microsoft.com/beta/teams/{self.team_id}/channels/{self.id}/messages?$top=50'
+
+    async def create_chat(self, v: Dict):
+        self.members = []
+        self.topic = self.display_name
+        self.chatType = "channel"
+        self.folder = await self._util.normalize_str(
+            self.topic + '_' + self.id)
+        return self
+
+
+class Team():
+    id: str
+    createdDateTime: str
+    display_name: str
+    description: str
+    channels: List[TeamsChannel]
+
+    def __init__(self, obj) -> None:
+        self.id = obj["id"]
+        self.display_name = obj["displayName"]
+        self.description = obj["description"]
+        self.channels = []
+
+
 class TeamsDownloader():
     chats: 'dict[int, TeamsChat]' = {}
+    channels: 'dict[int, TeamsChannel]' = {}
+    teams: 'dict[int, Team]' = {}
     _sharepoint_cookie: Dict = {}
     _graph_token: str = ""
     _teams_util = TeamsDownloaderUtil()
@@ -161,18 +201,29 @@ class TeamsDownloader():
         await self.load_auth()
         await self._teams_util.init_http(in_cookies=self.sharepoint_cookie, in_headers={'Authorization': 'Bearer ' + self.graph_token})
         await self.load_chats()
+        await self.load_teams()
+        await self.load_channels(self.teams)
+
+        for t_idx, team in self.teams.items():
+            for chan in team.channels:
+                print(f'{chan.id} : {chan.description}')
 
         for k, v in self.chats.items():
             print(v.topic)
 
-    async def download_chats(self, indexes: List[int]):
-        for idx in indexes:
-            if (not self.chats[idx]._util):
+    async def download_chats(self, chat_indexes: List[int], channel_indexes: List[int]):
+        for chat_idx in chat_indexes:
+            if (not self.chats[chat_idx]._util):
                 print(f'Http client not initialized passing in')
-                self.chats[idx]._util = self._teams_util
-            print(f'Downloading: {self.chats[idx].topic}')
+                self.chats[chat_idx]._util = self._teams_util
+            print(f'Downloading: {self.chats[chat_idx].topic}')
 
-        await asyncio.gather(*[self.chats[x].download() for x in indexes])
+        for chan_idx in chat_indexes:
+            if (not self.channels[chan_idx]._util):
+                print(f'Http client not initialized passing in')
+                self.channels[chan_idx]._util = self._teams_util
+
+        await asyncio.gather(*[self.chats[x].download() for x in chat_indexes], *[self.channels[x].download() for x in channel_indexes])
         print("Done for all")
 
     async def load_graph_explorer_token(self, page: page.Page, url):
@@ -240,38 +291,53 @@ class TeamsDownloader():
         self.graph_token = token
         return [req_cookies, token]
 
-    async def load_chats(self):
+    async def load_graph_data(self, base_url: str):
         chats_data = []
         try:
-            if os.path.isfile('./chats.json'):
-                print("Chat Cache Exists, utlizing it")
-                await self.load_chat_cache()
-                return
-            else:
-                print("Chat Cache Doesn't Exist, Refreshing")
-
-                chaturl = 'https://graph.microsoft.com/beta/me/chats?$top=50'
-
-                while True:
-                    async with self._teams_util.http_client.get(chaturl) as resp:
-                        data = await resp.json()
-                    if "value" in data:
-                        chats_data.extend(data["value"])
-                        if "@odata.nextLink" in data and data["@odata.nextLink"] != chaturl:
-                            chaturl = data["@odata.nextLink"]
-                        else:
-                            break
+            while True:
+                async with self._teams_util.http_client.get(base_url) as resp:
+                    data = await resp.json()
+                if "value" in data:
+                    chats_data.extend(data["value"])
+                    if "@odata.nextLink" in data and data["@odata.nextLink"] != base_url:
+                        base_url = data["@odata.nextLink"]
                     else:
                         break
+                else:
+                    break
         except Exception as e:
-            print("Exception loading chats -- ")
+            print("Exception loading data -- ")
             print(e)
+        return chats_data
 
-        for i, v in enumerate(chats_data):
+    async def load_chats(self):
+        if os.path.isfile('./chats.json'):
+            print("Chat Cache Exists, utlizing it")
+            await self.load_chat_cache()
+            return
+        else:
+            print("Chat Cache Doesn't Exist, Refreshing")
+
+        for i, v in enumerate(await self.load_graph_data(base_url='https://graph.microsoft.com/beta/me/chats?$top=50')):
             new_chat = TeamsChat(self._teams_util)
             self.chats[i] = await new_chat.create_chat(v)
-
         await self._teams_util.save_file(self.chats, "chats.json", True, ignore_fields=["http_client", "_util"])
+
+    async def load_teams(self):
+        for i, v in enumerate(await self.load_graph_data(base_url='https://graph.microsoft.com/beta/me/joinedTeams')):
+            self.teams[i] = Team(v)
+        print("Loaded Teams")
+
+    async def load_channels(self, teams: List[Team]):
+        for t_idx, team in teams.items():
+            base_url = f'https://graph.microsoft.com/beta/teams/{team.id}/channels'
+            for c_idx, v in enumerate(await self.load_graph_data(base_url=base_url)):
+                v["team_name"] = team.display_name
+                v["team_id"] = team.id
+                tmp_chan = TeamsChannel(v, self._teams_util)
+                tmp_chan = await tmp_chan.create_chat(v)
+                team.channels.append(tmp_chan)
+                self.channels[c_idx] = tmp_chan
 
     async def load_chat_cache(self):
         print('loading chats from cached chats.json')
