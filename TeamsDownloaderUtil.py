@@ -1,9 +1,5 @@
 # -*- coding: utf-8 -*-
 import asyncio
-from datetime import datetime
-from distutils import debug
-from enum import Enum
-from http import cookies
 import pathlib
 from typing import Dict, List, MutableSet
 from wsgiref import headers
@@ -11,7 +7,7 @@ from pyppeteer import launch, page
 import json
 from pyppeteer.browser import Browser
 from pyppeteer.element_handle import ElementHandle
-import requests
+
 import os
 import time
 import tkinter as tk

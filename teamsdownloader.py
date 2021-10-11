@@ -197,8 +197,8 @@ class TeamsDownloader():
     def __setstate__(self, state):
         self.__dict__.update(state)
 
-    async def init(self, callback: Coroutine = None) -> None:
-        await self.load_auth()
+    async def init(self, callback: Coroutine = None, tenant: str = "https://wapol-my.sharepoint.com/") -> None:
+        await self.load_auth(tenant)
         await self._teams_util.init_http(in_cookies=self.sharepoint_cookie, in_headers={'Authorization': 'Bearer ' + self.graph_token})
         await self.load_chats()
         await self.load_teams()
@@ -206,7 +206,7 @@ class TeamsDownloader():
 
         for t_idx, team in self.teams.items():
             for chan in team.channels:
-                print(f'{chan.id} : {chan.description}')
+                print(f'[{chan.team_name}] -> {chan.topic}, {chan.description}')
 
         for k, v in self.chats.items():
             print(v.topic)
@@ -218,7 +218,7 @@ class TeamsDownloader():
                 self.chats[chat_idx]._util = self._teams_util
             print(f'Downloading: {self.chats[chat_idx].topic}')
 
-        for chan_idx in chat_indexes:
+        for chan_idx in channel_indexes:
             if (not self.channels[chan_idx]._util):
                 print(f'Http client not initialized passing in')
                 self.channels[chan_idx]._util = self._teams_util
@@ -261,7 +261,7 @@ class TeamsDownloader():
         await self._teams_util.save_file(cookies, "cookie.json", True)
         print('found cookies: ' + str(cookies))
 
-    async def load_auth(self):
+    async def load_auth(self, tenant: str):
         browser: Browser = None
         if(not(await self._teams_util.file_within_age_threshold("token.txt", 2700))):
             if (not browser):
@@ -274,8 +274,7 @@ class TeamsDownloader():
             if (not browser):
                 browser = await self._teams_util.launch_browser()
             page2 = await browser.newPage()
-            # await self.load_sharepoint_cookies(page2, 'https://wapol-my.sharepoint.com/')
-            await self.load_sharepoint_cookies(page2, 'https://inoffice.sharepoint.com/')
+            await self.load_sharepoint_cookies(page2, tenant)
 
         cookie = await self._teams_util.load_file("cookie.json", is_json=True)
         req_cookies = {}
@@ -329,6 +328,7 @@ class TeamsDownloader():
         print("Loaded Teams")
 
     async def load_channels(self, teams: List[Team]):
+        c_inner = 0
         for t_idx, team in teams.items():
             base_url = f'https://graph.microsoft.com/beta/teams/{team.id}/channels'
             for c_idx, v in enumerate(await self.load_graph_data(base_url=base_url)):
@@ -337,7 +337,8 @@ class TeamsDownloader():
                 tmp_chan = TeamsChannel(v, self._teams_util)
                 tmp_chan = await tmp_chan.create_chat(v)
                 team.channels.append(tmp_chan)
-                self.channels[c_idx] = tmp_chan
+                self.channels[c_inner] = tmp_chan
+                c_inner += 1
 
     async def load_chat_cache(self):
         print('loading chats from cached chats.json')

@@ -21,7 +21,7 @@ from TeamsDownloader import TeamsDownloader
 from TeamsDownloader import TeamsChat
 
 import wx
-from wx.core import DefaultSize, ListBox
+from wx.core import DefaultSize, ListBox, Choice
 from wxasync import AsyncBind, WxAsyncApp, StartCoroutine
 
 
@@ -30,16 +30,21 @@ class MainFrame(wx.Frame):
     token: str
     chats: dict
     chatList: ListBox
+    combo_sp_tenant: Choice
 
     def __init__(self, parent=None):
         super(MainFrame, self).__init__(parent)
         panel = wx.Panel(self)
 
+        #self.combo_sp_tenant = wx.Choice(panel, choices = ["https://wapol-my.sharepoint.com/", "https://inoffice.sharepoint.com/"])
         btn_download = wx.Button(panel, label="download chat")
         btn_open = wx.Button(panel, label="open selected folders")
         btn_sizer = wx.BoxSizer(wx.HORIZONTAL)
         btn_sizer.Add(btn_download)
         btn_sizer.Add(btn_open)
+        #btn_sizer.Add(self.combo_sp_tenant)
+
+
 
         self.status_text = wx.StaticText(panel, label="Select a chat to begin")
         vbox = wx.BoxSizer(wx.VERTICAL)
@@ -69,7 +74,9 @@ class MainFrame(wx.Frame):
     async def init(self):
         self.downloader = TeamsDownloader()
 
-        await self.downloader.init()
+        #await self.downloader.init(tenant="https://inoffice.sharepoint.com/")
+        await self.downloader.init(tenant="https://wapol-my.sharepoint.com/")
+        #await self.downloader.init("https://inoffice.sharepoint.com/" if self.combo_sp_tenant.GetSelection() == 1 else "https://wapol-my.sharepoint.com/")
         await self.populate_chat_lists()
         #AsyncBind(wx.EVT_BUTTON, self.downloader.init(callback=self.populate_chat_list), button1)
         #AsyncBind(wx.EVT_BUTTON, self.async_callback, button1)
@@ -90,7 +97,7 @@ class MainFrame(wx.Frame):
         self.chatList.InsertItems(
             [x.topic for k, x in self.downloader.chats.items()], 0)
         self.channelList.InsertItems(
-            [x.topic for k, x in self.downloader.channels.items()], 0)
+            [f'[{x.team_name}] {x.topic}' for k, x in self.downloader.channels.items()], 0)
         self.Layout()
 
     async def open_folder(self, evt):
