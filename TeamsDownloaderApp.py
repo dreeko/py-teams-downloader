@@ -76,10 +76,7 @@ class MainFrame(wx.Frame):
 
         #await self.downloader.init(tenant="https://inoffice.sharepoint.com/")
         await self.downloader.init(tenant="https://wapol-my.sharepoint.com/")
-        #await self.downloader.init("https://inoffice.sharepoint.com/" if self.combo_sp_tenant.GetSelection() == 1 else "https://wapol-my.sharepoint.com/")
         await self.populate_chat_lists()
-        #AsyncBind(wx.EVT_BUTTON, self.downloader.init(callback=self.populate_chat_list), button1)
-        #AsyncBind(wx.EVT_BUTTON, self.async_callback, button1)
 
     async def lb_select(self, evt):
         self.status_text.SetLabel("")
